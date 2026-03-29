@@ -23,3 +23,7 @@ _AI_Engine/chroma_db/
 
 # 快取資料庫
 _AI_Engine/record_manager_cache.sql
+
+# 排除視窗佈局
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
