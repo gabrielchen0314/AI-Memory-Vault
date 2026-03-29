@@ -23,6 +23,9 @@ os.chdir( _ENGINE_DIR )
 
 
 def main():
+    from env_setup import check_and_setup_env
+    check_and_setup_env()
+
     _Parser = argparse.ArgumentParser( description="AI 第二大腦 — 記憶庫引擎 v2.0" )
     _Parser.add_argument(
         "--mode",
@@ -42,6 +45,9 @@ def main():
 
 def _start_cli():
     """啟動 CLI 互動模式。"""
+    from env_setup import check_mode_prerequisites
+    check_mode_prerequisites( "cli" )
+
     from core.llm_factory import create_llm
     from agents.memory_agent import MemoryAgent
     from cli.repl import InteractiveRepl
@@ -57,14 +63,20 @@ def _start_api():
     import uvicorn
     from config import settings
     from api.app import app
+    from env_setup import check_mode_prerequisites
 
-    print( f"🚀 啟動 FastAPI 伺服器：http://{settings.API_HOST}:{settings.API_PORT}" )
-    print( f"   API 文件：http://{settings.API_HOST}:{settings.API_PORT}/docs\n" )
+    check_mode_prerequisites( "api", settings.API_PORT )
+
+    print( f"[START] FastAPI server: http://{settings.API_HOST}:{settings.API_PORT}" )
+    print( f"        API Docs:        http://{settings.API_HOST}:{settings.API_PORT}/docs\n" )
     uvicorn.run( app, host=settings.API_HOST, port=settings.API_PORT )
 
 
 def _start_mcp():
     """啟動 MCP stdio 伺服器（供 VS Code / Claude Desktop 呼叫）。"""
+    from env_setup import check_mode_prerequisites
+    check_mode_prerequisites( "mcp" )
+
     from mcp_server import run_mcp_server
     run_mcp_server()
 
