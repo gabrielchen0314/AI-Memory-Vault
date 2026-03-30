@@ -9,7 +9,8 @@ created: 2026-03-28
 last_updated: 2026-03-28
 ai_summary: "建置錯誤解決專家：以最小差異修正原則快速讓建置通過"
 memory_categories: [work]
-mcp_tools: [search_notes]
+mcp_tools: [read_note, search_vault]
+editor_tools: [read, edit, search, execute, todo]
 ---
 
 # BuildErrorResolver Agent 🔧

@@ -9,7 +9,8 @@ created: 2026-03-28
 last_updated: 2026-03-28
 ai_summary: "Git 提交流程專家：分析變更、分類檔案、撰寫規範 Commit Message 並執行提交"
 memory_categories: [work]
-mcp_tools: [search_notes]
+mcp_tools: [read_note, search_vault]
+editor_tools: [read, edit, search, execute, todo]
 ---
 
 # GitCommitter Agent 🚀

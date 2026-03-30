@@ -7,9 +7,9 @@ VS Code / Claude Desktop / Cursor 透過 stdio 呼叫此伺服器，
 即可直接存取 Vault 的搜尋、同步、讀取、寫入功能。
 
 @author gabrielchen
-@version 2.1
+@version 2.2
 @since AI-Memory-Vault 2.0
-@date 2026.03.29
+@date 2026.03.30
 """
 import os
 import sys
@@ -102,6 +102,34 @@ def write_note( file_path: str, content: str ) -> str:
     )
 
 
+# ── Tool: setup_workspace ────────────────────────────────────
+@mcp.tool()
+def setup_workspace() -> str:
+    """
+    偵測 Vault Agent 定義與規則，自動建立 VS Code 全域設定檔案。
+    已存在的檔案跳過（冪等），不覆蓋使用者手動修改的內容。
+    建立內容：templates/agents/*.md → {name}.agent.md、work/*/rules/*.md → vault-coding-rules.instructions.md。
+    """
+    with _StdoutToStderr():
+        from services.workspace_setup import WorkspaceSetupService
+        _Stats = WorkspaceSetupService.setup()
+
+    if _Stats["error"]:
+        return f"Setup failed: {_Stats['error']}"
+
+    _Parts = []
+    if _Stats["agents_created"]:
+        _Parts.append( f"Agents created: {', '.join( _Stats['agents_created'] )}" )
+    if _Stats["agents_skipped"]:
+        _Parts.append( f"Agents skipped (exist): {', '.join( _Stats['agents_skipped'] )}" )
+    if _Stats["rules_created"]:
+        _Parts.append( "Rules instructions file created." )
+    if _Stats["rules_skipped"]:
+        _Parts.append( "Rules instructions file already exists, skipped." )
+
+    return "\n".join( _Parts ) if _Parts else "Nothing to setup — all files already exist."
+
+
 # ── Entry Point ────────────────────────────────────────────
 def run_mcp_server():
     """
@@ -115,9 +143,11 @@ def run_mcp_server():
     with _StdoutToStderr():
         from core.embeddings import get_embeddings
         from core.vectorstore import get_vectorstore, get_record_manager
+        from services.workspace_setup import WorkspaceSetupService
         get_embeddings()
         get_vectorstore()
         get_record_manager()
+        WorkspaceSetupService.setup()  # 冪等：偵測並補建缺少的 VS Code 設定檔案
 
     mcp.run( transport="stdio" )
 

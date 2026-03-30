@@ -9,7 +9,8 @@ created: 2026-03-28
 last_updated: 2026-03-28
 ai_summary: "遊戲安全審查專家：作弊防護、資料驗證、漏洞檢測與敏感資訊保護"
 memory_categories: [work]
-mcp_tools: [search_notes]
+mcp_tools: [read_note, search_vault]
+editor_tools: [read, edit, search, execute, todo]
 ---
 
 # SecurityReviewer Agent 🔒

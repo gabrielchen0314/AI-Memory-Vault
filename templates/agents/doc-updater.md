@@ -9,7 +9,8 @@ created: 2026-03-28
 last_updated: 2026-03-28
 ai_summary: "文件與 API Map 更新專家：維護 API Map、更新文件、確保文件與程式碼同步"
 memory_categories: [work]
-mcp_tools: [search_notes]
+mcp_tools: [read_note, search_vault]
+editor_tools: [read, edit, search, execute, todo]
 ---
 
 # DocUpdater Agent 📚

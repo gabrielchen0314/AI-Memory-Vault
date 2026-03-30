@@ -8,7 +8,8 @@ created: 2026-03-28
 last_updated: 2026-03-28
 ai_summary: "重構與死碼清理專家：識別並移除未使用的程式碼，消除重複，保持程式庫精簡"
 memory_categories: [work]
-mcp_tools: [search_notes]
+mcp_tools: [read_note, search_vault]
+editor_tools: [read, edit, search, execute, todo]
 ---
 
 # RefactorCleaner Agent 🧹

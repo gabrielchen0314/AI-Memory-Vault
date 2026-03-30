@@ -9,7 +9,8 @@ created: 2026-03-28
 last_updated: 2026.03.29
 ai_summary: "系統架構設計專家：技術決策、可擴展性評估、架構規劃、Vault 全域模板自動偵測（projects + sections）"
 memory_categories: [work, knowledge]
-mcp_tools: [search_vault]
+mcp_tools: [read_note, search_vault]
+editor_tools: [read, edit, search, execute, todo]
 ---
 
 # Architect Agent 🏗️

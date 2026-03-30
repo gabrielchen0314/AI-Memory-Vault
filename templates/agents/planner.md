@@ -8,7 +8,8 @@ created: 2026-03-28
 last_updated: 2026-03-28
 ai_summary: "專業規劃師：負責複雜功能實作、架構變更、重構任務的規劃與分解"
 memory_categories: [work, life, knowledge]
-mcp_tools: [search_notes]
+mcp_tools: [read_note, search_vault]
+editor_tools: [read, edit, search, execute, todo]
 ---
 
 # Planner Agent

@@ -9,7 +9,8 @@ created: 2026-03-28
 last_updated: 2026-03-28
 ai_summary: "程式碼審查專家：確保程式碼品質、安全性與可維護性的資深審查者"
 memory_categories: [work]
-mcp_tools: [search_notes]
+mcp_tools: [read_note, search_vault]
+editor_tools: [read, edit, search, execute, todo]
 ---
 
 # CodeReviewer Agent 🔍

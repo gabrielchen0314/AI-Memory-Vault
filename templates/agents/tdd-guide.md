@@ -8,7 +8,8 @@ created: 2026-03-28
 last_updated: 2026-03-28
 ai_summary: "TDD 測試驅動開發專家：確保所有程式碼遵循測試先行原則，引導 Red-Green-Refactor 循環"
 memory_categories: [work, knowledge]
-mcp_tools: [search_notes]
+mcp_tools: [read_note, search_vault]
+editor_tools: [read, edit, search, execute, todo]
 ---
 
 # TDD Guide Agent 🧪

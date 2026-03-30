@@ -8,7 +8,8 @@ created: 2026-03-28
 last_updated: 2026-03-28
 ai_summary: "學習觸發器：從對話中提取學習模式，更新記憶檔與 Instinct 系統"
 memory_categories: [knowledge, work]
-mcp_tools: [search_notes, sync_notes]
+mcp_tools: [read_note, write_note, search_vault, sync_vault]
+editor_tools: [read, edit, search, execute, todo]
 ---
 
 # LearnTrigger Agent 🧠

@@ -1,4 +1,4 @@
-# AI Memory Vault - 專案進度與架構 (v2.3)
+# AI Memory Vault - 專案進度與架構 (v2.4)
 
 > ⚠️ 每次新對話開始、有進度更新、或架構變更後，必須同步更新此檔案與 Copilot Repo Memory（`/memories/repo/ai-memory-vault-progress.md`）。
 > ⚠️ 當 AI-Memory-Vault 路徑下的檔案有必要更新時（如 `_system/AGENTS.md`、`templates/agents/*.md`、`work/LIFEOFDEVELOPMENT/projects/AIMemoryVault/project-overview.md` 等），必須同步一起更新，確保 Vault 內各檔案資訊一致。反之亦然。
@@ -19,7 +19,8 @@ D:\AI-Memory-Vault\
 │   ├── docs/
 │   │   └── API_MAP.md         → 模組公開 API 速查手冊（Rule 03）
 │   ├── services/              ← ⭐ v2.1 新增：業務邏輯統一入口
-│   │   └── vault_service.py   → 路徑驗證 + read/write/search/sync（Single Source of Truth）
+│   │   ├── vault_service.py   → 路徑驗證 + read/write/search/sync（Single Source of Truth）
+│   │   └── workspace_setup.py → ⭐ v2.4 新增：VS Code 全域設定自動建立（WorkspaceSetupService）
 │   ├── core/                  → 核心引擎層
 │   │   ├── embeddings.py      → 多語言向量模型（multilingual-MiniLM-L12-v2）
 │   │   ├── llm_factory.py     → LLM 工廠（Ollama / Gemini 可插拔）
@@ -39,7 +40,7 @@ D:\AI-Memory-Vault\
 │   │   └── channels/          → Messaging Gateway 層
 │   │       ├── base.py        → BaseChannel ABC
 │   │       └── line.py        → LineChannel（HMAC-SHA256 + Reply/Push API）
-│   ├── mcp_server.py          → MCP Server v2.1（FastMCP SDK，4 tools）
+│   ├── mcp_server.py          → MCP Server v2.2（FastMCP SDK，5 tools）
 │   └── cli/
 │       └── repl.py            → 互動終端（串流 + 工具呼叫）
 ├── .github/prompts/           → VS Code Prompt 入口（10 個 .prompt.md，/斜線指令）
@@ -84,6 +85,22 @@ D:\AI-Memory-Vault\
 - [ ] Gemini API key 更換（新 project）
 - [ ] Telegram Channel
 - [ ] 雲端部署
+
+### v2.4 完成項目 (2026.03.31) — VS Code 自動設定 + MCP tool 擴充 ⭐
+- [x] **WorkspaceSetupService**（`services/workspace_setup.py`）新建：
+  - `_find_vscode_prompts_dir()` — Windows / macOS / Linux 跨平台偵測 VS Code prompts 目錄（含 Insiders）
+  - `_parse_frontmatter()` — YAML frontmatter 解析（讀取 `mcp_tools` / `editor_tools`）
+  - `_collect_rule_files()` — 掃描 `work/*/rules/*.md`（排除 index.md，依公司分組）
+  - `_build_agent_md()` — 從 frontmatter 動態產生 `.agent.md`（無 AGENT_TOOLS_MAP hardcode）
+  - `_build_rules_instructions()` — 產生 `vault-coding-rules.instructions.md` 規則索引
+  - `setup()` — 冪等主入口：agents + rules 兩類，目標存在則跳過
+  - **Ask_ 前置規則**：`editor_tools` 中無 `edit` 動作時，輸出檔名加 `Ask_` 前置
+- [x] **mcp_server.py v2.1 → v2.2**：
+  - 新增第 5 個 MCP tool `setup_workspace()` — 手動觸發 VS Code 設定同步
+  - `run_mcp_server()` pre-warm 區塊加入 `WorkspaceSetupService.setup()`（MCP 啟動時自動執行一次）
+- [x] **templates/agents/*.md frontmatter 全部修正**（10 個檔案）：
+  - `mcp_tools` 舊名修正（search_notes→search_vault 等）
+  - 新增 `editor_tools: [read, edit, search, execute, todo]` 欄位
 
 ---
 
