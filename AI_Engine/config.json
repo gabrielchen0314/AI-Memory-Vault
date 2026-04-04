@@ -50,13 +50,17 @@
   },
   "embedding": {
     "model": "all-MiniLM-L6-v2",
-    "device": "cpu"
+    "device": "cpu",
+    "chunk_size": 500,
+    "chunk_overlap": 50
   },
   "search": {
     "top_k": 5,
     "use_hybrid": true,
     "bm25_weight": 0.4,
     "vector_weight": 0.6,
+    "keyword_bm25_weight": 0.7,
+    "semantic_bm25_weight": 0.2,
     "recency_bias_enabled": true,
     "recency_decay_days": 90
   },

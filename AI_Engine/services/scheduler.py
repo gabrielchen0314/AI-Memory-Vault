@@ -52,6 +52,7 @@ class SchedulerService:
         """
         生成指定專案的每日詳細進度模板。
         冪等：已存在則回傳路徑不覆蓋。
+        若 status.md 存在，會自動從待辦事項預填「今日計畫」區塊。
 
         Args:
             iOrg:     組織名稱（例如 'CHINESEGAMER'）。
@@ -69,7 +70,16 @@ class SchedulerService:
         if os.path.exists( _AbsPath ):
             return _RelPath
 
-        _Content = self._render_project_daily_template( _Date, iOrg, iProject )
+        # 嘗試從 status.md 讀取待辦事項
+        _PendingTodos: list = []
+        try:
+            _StatusData, _StatusErr = VaultService.get_project_status( iOrg, iProject )
+            if not _StatusErr and _StatusData:
+                _PendingTodos = _StatusData.get( "pending_todos", [] )
+        except Exception:
+            pass  # status.md 不存在時降級為空模板
+
+        _Content = self._render_project_daily_template( _Date, iOrg, iProject, _PendingTodos )
         self._sync_write( _RelPath, _Content )
         return _RelPath
 
@@ -269,9 +279,10 @@ class SchedulerService:
 
         # 掃描所有專案的 conversations
         _ProjectConvs = self._scan_all_project_conversations( _WeekStart, _WeekEnd )
+        _TokenStats = self._compute_token_stats( _ProjectConvs )
 
         _Content = self._render_ai_weekly_analysis_template(
-            _Year, _Week, _WeekStart, _WeekEnd, _ProjectConvs
+            _Year, _Week, _WeekStart, _WeekEnd, _ProjectConvs, _TokenStats
         )
         self._sync_write( _RelPath, _Content )
         return _RelPath
@@ -312,16 +323,53 @@ class SchedulerService:
                 if _F.startswith( _YearMonth[:4] ) and _F.endswith( ".md" ):
                     _WeeklyReports.append( _F )
 
+        _TokenStats = self._compute_token_stats( _ProjectConvs )
         _Content = self._render_ai_monthly_analysis_template(
-            _YearMonth, _ProjectConvs, _WeeklyReports
+            _YearMonth, _ProjectConvs, _WeeklyReports, _TokenStats
         )
         self._sync_write( _RelPath, _Content )
         return _RelPath
     #endregion
 
+    #region 公開方法 — 知識萃取
+    def extract_knowledge(
+        self,
+        iOrg:     str,
+        iProject: str,
+        iTopic:   str,
+        iSession: Optional[str] = None,
+    ) -> str:
+        """
+        從指定專案的 conversations/ 萃取知識卡片（委派 KnowledgeExtractor）。
+
+        Args:
+            iOrg:     組織名稱。
+            iProject: 專案名稱。
+            iTopic:   知識主題（英文 slug）。
+            iSession: 篩選特定 session 名稱（留空 = 全部）。
+
+        Returns:
+            知識卡片的相對路徑字串（失敗時為錯誤訊息字串）。
+        """
+        from services.knowledge_extractor import KnowledgeExtractor
+        _Extractor = KnowledgeExtractor( self.m_Config )
+        _Path, _Err = _Extractor.extract( iOrg, iProject, iTopic, iSession )
+        if _Err:
+            return _Err
+        return _Path
+    #endregion
+
     #region 私有方法 — 模板渲染（專案層級）
-    def _render_project_daily_template( self, iDate: str, iOrg: str, iProject: str ) -> str:
-        """渲染專案每日詳細進度模板。"""
+    def _render_project_daily_template( self, iDate: str, iOrg: str, iProject: str, iPendingTodos: list = None ) -> str:
+        """渲染專案每日詳細進度模板。若待辦事項組已備，自動預填「今日計畫」區塊。"""
+        _StatusRef = self.m_Config.paths.project_status_file( iOrg, iProject )
+
+        # 「今日計畫」：從 status.md 待辦事項預填，或留空衬位
+        if iPendingTodos:
+            _PlanLines = "\n".join( f"- [ ] {_T}" for _T in iPendingTodos[:5] )
+        else:
+            _PlanLines = "- "
+
         return f"""---
 type: project-daily
 organization: {iOrg}
@@ -331,6 +379,12 @@ created: {iDate}
 ---
 
 # 📝 {iProject} — 每日進度 {iDate}
+
+> 專案狀態：[status.md]({_StatusRef})
+
+## 今日計畫（來自 status.md）
+
+{_PlanLines}
 
 ## 今日完成
 
@@ -604,14 +658,46 @@ target: {iTargetPath}
         """
         return self._scan_all_project_conversations( iDate, iDate )
 
+    def _compute_token_stats( self, iProjectConvs: dict ) -> dict:
+        """
+        計算各專案對話檔案的估算 token 統計。
+
+        Args:
+            iProjectConvs: { "{org}/{project}": [filename, ...], ... }
+
+        Returns:
+            { "{org}/{project}": token_count, ... } 對應估算 token 總數。
+        """
+        from services.token_counter import TokenCounter
+        _P = self.m_Config.paths
+        _Stats: dict = {}
+
+        for _Key, _Files in iProjectConvs.items():
+            _Parts = _Key.split( "/", 1 )
+            _Org   = _Parts[0]
+            _Proj  = _Parts[1] if len( _Parts ) > 1 else ""
+            _ConvDir = os.path.join(
+                self.m_VaultRoot,
+                _P.project_conversations_dir( _Org, _Proj ),
+            )
+            _Total = 0
+            for _F in _Files:
+                _Total += TokenCounter.count_file( os.path.join( _ConvDir, _F ) )
+            _Stats[_Key] = _Total
+
+        return _Stats
+
     def _render_ai_weekly_analysis_template(
         self, iYear: int, iWeek: int, iWeekStart: str, iWeekEnd: str,
-        iProjectConvs: dict
+        iProjectConvs: dict, iTokenStats: dict = None
     ) -> str:
         """渲染 AI 對話每週分析模板。"""
+        from services.token_counter import TokenCounter
         _Today = datetime.now().strftime( "%Y-%m-%d" )
         _TotalConvs = sum( len( _V ) for _V in iProjectConvs.values() )
         _P = self.m_Config.paths
+        _TokenStatsMap = iTokenStats or {}
+        _TotalTokens = sum( _TokenStatsMap.values() )
 
         # 各專案統計表
         _ProjRows = ""
@@ -623,6 +709,15 @@ target: {iTargetPath}
 
         if not _ProjRows:
             _ProjRows = "| （本週尚無對話紀錄） | | | |\n"
+
+        # Token 消耗表（依專案）
+        _TokenRows = ""
+        for _Key, _Toks in _TokenStatsMap.items():
+            _TokenRows += f"| {_Key} | {TokenCounter.format_k( _Toks )} | — | {TokenCounter.format_k( _Toks )} |\n"
+        if not _TokenRows:
+            _TokenRows = "| （無資料） | | | |\n"
+
+        _TotalTokenFmt = TokenCounter.format_k( _TotalTokens ) if _TotalTokens else "—"
 
         return f"""---
 type: ai-analysis-weekly
@@ -645,7 +740,7 @@ period: {iWeekStart} ~ {iWeekEnd}
 | 平均每日對話數 | {_TotalConvs / 7:.1f} |
 | 平均輪數（人→AI） | TODO |
 | 一次成功率 | TODO% |
-| 估計 Token 消耗 | TODO |
+| 估計 Token 消耗 | {_TotalTokenFmt} |
 
 ## 各專案對話明細
 
@@ -670,8 +765,7 @@ period: {iWeekStart} ~ {iWeekEnd}
 
 | 專案 | 預估 Input Tokens | 預估 Output Tokens | 合計 |
 |------|------------------|-------------------|------|
-| | | | |
-
+{_TokenRows}
 ### 高消耗對話
 
 - 
@@ -699,17 +793,22 @@ period: {iWeekStart} ~ {iWeekEnd}
 """
 
     def _render_ai_monthly_analysis_template(
-        self, iYearMonth: str, iProjectConvs: dict, iWeeklyReports: list
+        self, iYearMonth: str, iProjectConvs: dict, iWeeklyReports: list,
+        iTokenStats: dict = None
     ) -> str:
         """渲染 AI 對話每月分析模板。"""
+        from services.token_counter import TokenCounter
         _Today = datetime.now().strftime( "%Y-%m-%d" )
         _TotalConvs = sum( len( _V ) for _V in iProjectConvs.values() )
         _P = self.m_Config.paths
+        _TokenStatsMap = iTokenStats or {}
+        _TotalTokens = sum( _TokenStatsMap.values() )
 
         # 各專案月度統計
         _ProjRows = ""
         for _Key, _Files in iProjectConvs.items():
-            _ProjRows += f"| {_Key} | {len( _Files )} | TODO | TODO |\n"
+            _TokFmt = TokenCounter.format_k( _TokenStatsMap.get( _Key, 0 ) )
+            _ProjRows += f"| {_Key} | {len( _Files )} | TODO | {_TokFmt} |\n"
 
         if not _ProjRows:
             _ProjRows = "| （本月尚無對話紀錄） | | | |\n"
@@ -718,6 +817,8 @@ period: {iWeekStart} ~ {iWeekEnd}
         _WeeklyLinks = "\n".join(
             f"- [{_F}]({_P.ai_analysis_weekly}/{_F})" for _F in iWeeklyReports
         ) if iWeeklyReports else "（本月尚無週報）"
+
+        _TotalTokenFmt = TokenCounter.format_k( _TotalTokens ) if _TotalTokens else "—"
 
         return f"""---
 type: ai-analysis-monthly
@@ -736,7 +837,7 @@ month: {iYearMonth}
 | 涉及專案數 | {len( iProjectConvs )} |
 | 平均每週對話數 | {_TotalConvs / 4:.1f} |
 | 月度一次成功率 | TODO% |
-| 月度 Token 總消耗 | TODO |
+| 月度 Token 總消耗 | {_TotalTokenFmt} |
 
 ## 各專案月度對話統計
 

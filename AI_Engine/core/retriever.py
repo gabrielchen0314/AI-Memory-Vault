@@ -34,6 +34,8 @@ class VaultRetriever:
     m_UseHybrid: bool
     m_BM25Weight: float
     m_VecWeight: float
+    m_KeywordBM25Weight: float
+    m_SemanticBM25Weight: float
     m_RecencyEnabled: bool
     m_RecencyDecayDays: int
     #endregion
@@ -45,12 +47,14 @@ class VaultRetriever:
         Args:
             iConfig: 應用程式設定。
         """
-        self.m_TopK = iConfig.search.top_k
-        self.m_UseHybrid = iConfig.search.use_hybrid
-        self.m_BM25Weight = iConfig.search.bm25_weight
-        self.m_VecWeight = iConfig.search.vector_weight
-        self.m_RecencyEnabled = iConfig.search.recency_bias_enabled
-        self.m_RecencyDecayDays = iConfig.search.recency_decay_days
+        self.m_TopK              = iConfig.search.top_k
+        self.m_UseHybrid         = iConfig.search.use_hybrid
+        self.m_BM25Weight        = iConfig.search.bm25_weight
+        self.m_VecWeight         = iConfig.search.vector_weight
+        self.m_KeywordBM25Weight = iConfig.search.keyword_bm25_weight
+        self.m_SemanticBM25Weight = iConfig.search.semantic_bm25_weight
+        self.m_RecencyEnabled    = iConfig.search.recency_bias_enabled
+        self.m_RecencyDecayDays  = iConfig.search.recency_decay_days
 
     #region 公開方法
     def search(
@@ -59,6 +63,7 @@ class VaultRetriever:
         iCategory: str = "",
         iDocType: str = "",
         iTopK: Optional[int] = None,
+        iMode: str = "",
     ) -> list:
         """
         執行搜尋（自動依設定選擇模式）。
@@ -68,6 +73,7 @@ class VaultRetriever:
             iCategory: 過濾分類（workspaces / personal / knowledge）。
             iDocType:  過濾文件類型（rule / project / meeting ...）。
             iTopK:     回傳筆數（預設使用 config）。
+            iMode:     搜尋模式調校（"keyword" → BM25 偏重；"semantic" → Vector 偏重；"" → 均衡）。
 
         Returns:
             搜尋結果列表，每筆含 content、source、category、metadata。
@@ -77,7 +83,7 @@ class VaultRetriever:
         print( f"\n[系統執行中] 🔍 正在搜尋：{iQuery}...", file=sys.stderr )
 
         if self.m_UseHybrid:
-            _Docs = self._hybrid_search( iQuery, iCategory, iDocType, _TopK )
+            _Docs = self._hybrid_search( iQuery, iCategory, iDocType, _TopK, iMode )
         else:
             _Filter = self._build_filter( iCategory, iDocType )
             if _Filter:
@@ -107,6 +113,7 @@ class VaultRetriever:
         iQuery: str,
         iCategory: str = "",
         iDocType: str = "",
+        iMode: str = "",
     ) -> str:
         """
         執行搜尋並回傳格式化的文字結果（供 MCP Tool 使用）。
@@ -115,11 +122,12 @@ class VaultRetriever:
             iQuery:    搜尋文字。
             iCategory: 過濾分類。
             iDocType:  過濾文件類型。
+            iMode:     搜尋模式（"keyword" / "semantic" / ""）。
 
         Returns:
             格式化搜尋結果字串。
         """
-        _Results = self.search( iQuery, iCategory, iDocType )
+        _Results = self.search( iQuery, iCategory, iDocType, iMode=iMode )
 
         if not _Results:
             return "記憶庫中找不到相關資料。"
@@ -141,6 +149,7 @@ class VaultRetriever:
         iCategory: str,
         iDocType: str,
         iTopK: int,
+        iMode: str = "",
     ) -> list[Document]:
         """
         BM25 關鍵字 + Vector 語意混合搜尋（EnsembleRetriever）。
@@ -150,10 +159,21 @@ class VaultRetriever:
             iCategory: 過濾分類。
             iDocType:  過濾文件類型。
             iTopK:     回傳筆數。
+            iMode:     搜尋模式（"keyword" / "semantic" / ""）。
 
         Returns:
             去重後的 Document 列表。
         """
+        # ── 依模式選擇權重 ────────────────────────────────
+        if iMode == "keyword":
+            _Bm25W = self.m_KeywordBM25Weight
+            _VecW  = 1.0 - _Bm25W
+        elif iMode == "semantic":
+            _Bm25W = self.m_SemanticBM25Weight
+            _VecW  = 1.0 - _Bm25W
+        else:
+            _Bm25W = self.m_BM25Weight
+            _VecW  = self.m_VecWeight
         _Filter = self._build_filter( iCategory, iDocType )
         _Vectorstore = get_vectorstore()
 
@@ -185,10 +205,11 @@ class VaultRetriever:
         # ── Ensemble（RRF 合併）────────────────────────────
         _Ensemble = EnsembleRetriever(
             retrievers=[_Bm25, _VectorRetriever],
-            weights=[self.m_BM25Weight, self.m_VecWeight],
+            weights=[_Bm25W, _VecW],
         )
 
-        print( f"[搜尋模式] 🔀 Hybrid（BM25 {int(self.m_BM25Weight*100)}% + Vector {int(self.m_VecWeight*100)}%）", file=sys.stderr )
+        _ModeLabel = f" [{iMode}]" if iMode else ""
+        print( f"[搜尋模式] 🔀 Hybrid{_ModeLabel}（BM25 {int(_Bm25W*100)}% + Vector {int(_VecW*100)}%）", file=sys.stderr )
 
         # ── 去重：同一來源檔案只保留排名最高的 chunk ──────
         _SeenSources = set()

@@ -2,7 +2,7 @@
 type: status
 project: ai-memory-vault
 org: LIFEOFDEVELOPMENT
-last_updated: 2026.04.04b
+last_updated: 2026.04.04
 ---
 
 # ai-memory-vault 專案狀態
@@ -11,61 +11,68 @@ last_updated: 2026.04.04b
 
 - [x] Scheduler Weekly/monthly 自動觸發（APScheduler，週一/月初自動生成）
 - [x] Daily note AI 彙整（自動從 `conversations/` 摘要生成每日進度）
-- [ ] Embedding 策略評估（chunk_size / overlap 調整，目前未調校）
-- [ ] 混合搜尋比重優化（BM25 0.4 / Vector 0.6 未依實際查詢場景評估）
+- [x] Embedding 策略評估（chunk_size=500 / overlap=50 可調校）
+- [x] 混合搜尋比重優化（keyword/semantic/balanced 三模式實作完成）
+- [x] `generate_project_daily` 預填充（從 status.md pending todos 自動填入今日計畫）
+- [x] CLI REPL 對齊 MCP 新工具（新增 5 個指令，E2E Step 18 106/106 PASS）
+- [x] Scheduler 單元測試（`tests/test_scheduler.py` 42 個測試，E2E Step 17 90/90 PASS）
+- [x] CLI 自動化同步（tools/registry.py 宣告式登記表，E2E Step 19 166/166 PASS）
+- [x] Vault Git 版本控制（services/git_service.py + config.GitConfig，E2E Step 20 183/183 PASS）
+- [x] 知識萃取自動化（services/knowledge_extractor.py，E2E Step 21 208/208 PASS）
+- [x] Token 分析欄位（services/token_counter.py，E2E Step 22 224/224 PASS）
+- [x] DB 覆蓋率稽核與清理（cleanup="full" + AutoScheduler 6 jobs，E2E 224/224 PASS）
+- [ ] tests/test_knowledge_extractor.py 補單元測試
+- [ ] ChromaDB migration 機制（技術債，中優先）
 - [ ] v3 UI 開發（Tauri + React 聊天介面 + 搜尋 + 設定）
 
 ## 工作脈絡
 
-**Phase 18（2026-04-04）完成項目：**
-- `services/auto_scheduler.py`：APScheduler BackgroundScheduler，3 個 cron job ✅
-  - Weekly Mon 08:00 → `generate_weekly_summary()`
-  - Monthly 1st 08:00 → `generate_monthly_summary()`
-  - Daily 22:00 → `generate_daily_summary()`（含 auto-digest）
-- `main.py --scheduler`：守護模式進入點 ✅
-- `services/scheduler.py`：`generate_daily_summary()` 加入 auto-digest ✅
-  - `_scan_today_conversations(date)` 新增
-  - `_render_daily_summary_template()` 加入「今日 AI 對話」區塊
-- `auto_tasks.ps1`：修正 3 個已更名的 method（generate_daily/weekly/monthly_review → _summary）✅
-- E2E Step 13（AutoScheduler，6 checks）→ 52/52 PASS ✅
-- `apscheduler>=3.10` 加入 `requirements.txt` ✅
+**Phase 21 DB 稽核與清理（2026-04-04）完成項目：**
 
-**Phase 18 end-of-day 追加（2026-04-04b）：**
-- `.gitignore` 整合 OLD 專案缺失條目（venv、ENV、*.pth、*.onnx、.env.*、Obsidian workspace）✅
-- `mcp_app/server.py`：`_load_vault_instructions()` 改為 frontmatter-driven ✅
-  - 掃描所有 `_config/*.md`，含 `inject: true` 者自動注入，hardcode 廢除
-  - `_config/nav.md`、`handoff.md`、`end-of-day-checklist.md` 加入 `inject: true`
-  - 根本修正「收工漏掉 handoff 步驟」bug
-- E2E 52/52 PASS 持續（無 regression）✅
+### 根本問題修正
+- `core/indexer.py`：`sync()` 全量掃描改為 `cleanup="full"`（原 `incremental` 無法清孤立向量）✅
+- 清除 76 個孤立向量（515 → 439 vectors）✅
 
-**兩套排程系統說明：**
-- `.bat` + Windows Task Scheduler：主要使用（可設定、開機恢復）
-- `main.py --scheduler` APScheduler：跨平台備用（Linux/Mac server 用）
-- 兩套功能重疊但各司其職，日常以 `.bat` 系統為主
-- `vscode_user_path` 欄位加入 `AppConfig` ✅
-- `SetupService` Step 6：自動生成 VS Code 全域 instructions 檔 ✅
-  - `vault-coding-rules.instructions.md`（動態發現，永不需手動更新）
-  - `VaultWriteConventions.instructions.md`
-- E2E Step 12（vscode integration，含冪等驗證）✅
-- E2E 46/46 PASS ✅
+### E2E 基礎強化
+- `e2e_test.py`：cleanup section 加入 `VaultService.sync()` 自動清除測試殘留 ✅
+- `e2e_test.py`：Step 2 唯一 marker 搜尋改用 `iMode="keyword"` 確保穩定性 ✅
+- `e2e_test.py`：job_count 斷言 3 → 6 ✅
 
-**Phase 16（2026-04-04）完成項目（全部）：**
-- `delete_note` MCP tool（VaultIndexer + VaultService + MCP server v3.5）✅
-- E2E Step 11（delete 生命週期）✅
-- `mcp.json` 清理（合一至全域，加入 `cwd`）✅
-- Prompts cleanup（刪除 2 個舊檔，更新 2 個，新建 SOP 檔）✅
-- `vault-coding-rules.instructions.md` 重構為動態發現（search_vault 自動找規則）✅
-- `global-prompts-maintenance.instructions.md`（新增後必更新 SOP）✅
-- 全規則合併至 `_global/rules/`（01–14），刪除 CHINESEGAMER + LIFEOFDEVELOPMENT 舊規則 ✅
-- sync_vault 清理孤立向量（Deleted=22）✅
+### Frontmatter 修正
+- `conversations/2026-04-04-phase13.md`：`type: ai-conversation` → `type: conversation` ✅
+- `conversations/2026-04-04_phase15-coding-rules-e2e-batch.md`：補完整 frontmatter ✅
 
-**Phase 15（2026-04-04）完成項目（已歸檔至 roadmap）**
+### AutoScheduler 擴充（3 → 6 jobs）
+- 新增 ai_weekly（週一 09:00 → `generate_ai_weekly_analysis()`）✅
+- 新增 ai_monthly（月 1 日 09:00 → `generate_ai_monthly_analysis()`）✅
+- 新增 weekly_full_sync（週日 02:00 → `VaultService.sync()`，清除靜態編輯孤立向量）✅
 
-## 技術債（目前最高優先）
+**E2E 最終狀態：224/224 PASS** ✅
+
+---
+
+**Phase 20c（2026-04-04）：**
+- `services/token_counter.py`：TokenCounter 靜態工具 ✅
+- 週報/月報模板 Token 分析欄位填入真實數值 ✅
+
+**Phase 20b（2026-04-04）：знания extraction**
+- `services/knowledge_extractor.py`：KnowledgeExtractor ✅（無 LLM 依賴）
+- `mcp_app/server.py`：extract_knowledge MCP tool ✅
+- `tools/registry.py`：11 個 ToolEntry ✅
+
+**Phase 20a（2026-04-04）：**
+- `services/git_service.py`：GitService + GitConfig ✅
+- VaultService 3 個 git hook 點 ✅
+
+## 技術債
 
 | 項目 | 嚴重度 |
 |------|------|
-| Scheduler 無單元測試 | 中 |
+| ~~Scheduler 無單元測試~~ | ✅ 已解決 |
+| ~~CLI REPL 與 MCP 功能未對齊~~ | ✅ 已解決 |
+| ~~知識萃取自動化~~ | ✅ 已解決 |
+| ~~Token 分析欄位空白~~ | ✅ 已解決 |
+| ~~孤立向量堆積（cleanup=incremental bug）~~ | ✅ 已解決 |
+| tests/test_knowledge_extractor.py 缺單元測試 | 低 |
 | ChromaDB migration 機制 | 中 |
-| CLI REPL 與 MCP 功能未對齊 | 低 |
-| Token 分析欄位空白 | 低 |
+| v3 UI（Tauri + React） | 長期 |

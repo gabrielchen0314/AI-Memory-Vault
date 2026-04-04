@@ -1,6 +1,6 @@
 ---
 type: system
-created: 2026.04.01
+created: 2026.04.04
 last_updated: 2026.04.04
 inject: true
 ---
@@ -18,20 +18,24 @@ inject: true
 
 ## 跨專案備註
 
-- Phase 18 Items 1+2 已完成：52/52 E2E 通過
-  - APScheduler daemon（`services/auto_scheduler.py`）+ `main.py --scheduler`
-  - Daily note auto-digest（`_scan_today_conversations` + 今日 AI 對話區塊）
-- MCP instructions 注入機制已改為 frontmatter-driven：`_config/*.md` 含 `inject: true` 者自動注入
-  - `nav.md`、`handoff.md`、`end-of-day-checklist.md` 已加入 `inject: true`
-  - 未來新增 `_config/` 指令檔只需加 `inject: true`，無需改程式碼
-- `auto_tasks.ps1` 方法名已修正（_review → _summary）
-- `.gitignore` 已整合 OLD 專案缺失條目（venv、ENV、ML 模型、Obsidian workspace）
-- 兩套排程系統：`.bat` 為主（Windows），`--scheduler` 跨平台備用
-- 下次優先處理：Phase 18 Item 3（Embedding 策略評估）或 Item 4（BM25/Vector 比重）
+- **E2E 224/224 PASS**（最新狀態）
+- Phase 21 完成：DB 覆蓋率稽核 + 清理
+  - `core/indexer.py` `sync()` 改 `cleanup="full"` → 清除 76 孤立向量（515→439）
+  - `AutoScheduler` 3→6 jobs（+ ai_weekly / ai_monthly / weekly_full_sync）
+  - E2E cleanup 加 `VaultService.sync()`；Step 2 改 `iMode="keyword"`
+  - Phase13/15 conversation frontmatter 修正完成
+- 目前 DB：**439 vectors**，type 分布全部正確（無 [none] / [test] / [ai-conversation]）
+- `tools/registry.py` 目前有 11 個 ToolEntry（alias: sy/gs/da/rv/wk/mo/la/aw/am/ex/ig）
+
+## 下次接續建議
+
+1. `tests/test_knowledge_extractor.py` — 補 KnowledgeExtractor 單元測試
+2. Phase 22：評估 v3 UI（Tauri + React）可行性
+3. ChromaDB migration 機制（技術債，中優先）
 
 ## 規則提醒
 
 - 新功能必須確認有 DB 更新路徑（寫入型工具）
 - 不重複接口：batch vs single 是不同用途，不算重複
 - 新規則或工具加入後，必須更新 `_config/agents.md`
-- 收工前必須先讀 `_config/end-of-day-checklist.md`（5 個必做步驟）
+- 收工前必須先讀 `_config/end-of-day-checklist.md`（必做步驟）

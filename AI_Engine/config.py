@@ -53,6 +53,10 @@ class EmbeddingConfig:
     model: str = "paraphrase-multilingual-MiniLM-L12-v2"
     ## <summary>運行裝置（cpu / cuda）</summary>
     device: str = "cpu"
+    ## <summary>單一 chunk 最大字元數（MarkdownHeader 切塊後的二次裁切上限）</summary>
+    chunk_size: int = 500
+    ## <summary>相鄰 chunk 重疊字元數（保留上下文連貫性）</summary>
+    chunk_overlap: int = 50
 
 
 @dataclass
@@ -62,10 +66,14 @@ class SearchConfig:
     top_k: int = 5
     ## <summary>是否啟用混合搜尋（BM25 + Vector）</summary>
     use_hybrid: bool = True
-    ## <summary>BM25 權重</summary>
+    ## <summary>預設 BM25 權重（均衡模式）</summary>
     bm25_weight: float = 0.4
-    ## <summary>Vector 權重</summary>
+    ## <summary>預設 Vector 權重（均衡模式）</summary>
     vector_weight: float = 0.6
+    ## <summary>關鍵字模式 BM25 權重（mode=keyword）</summary>
+    keyword_bm25_weight: float = 0.7
+    ## <summary>語意模式 BM25 權重（mode=semantic）</summary>
+    semantic_bm25_weight: float = 0.2
     ## <summary>是否啟用近期偏好重排序</summary>
     recency_bias_enabled: bool = True
     ## <summary>半衰期天數</summary>
@@ -98,6 +106,17 @@ class APIConfig:
     host: str = "127.0.0.1"
     ## <summary>監聽埠</summary>
     port: int = 8000
+
+
+@dataclass
+class GitConfig:
+    """Git 版本控制設定。"""
+    ## <summary>是否啟用自動提交（每次 write/delete 後 git commit）</summary>
+    auto_commit: bool = False
+    ## <summary>提交者名稱</summary>
+    author_name: str = "AI Memory Vault"
+    ## <summary>提交者 Email</summary>
+    author_email: str = "vault@localhost"
 
 
 @dataclass
@@ -330,6 +349,8 @@ class AppConfig:
     database: DatabaseConfig = field( default_factory=DatabaseConfig )
     ## <summary>API 設定</summary>
     api: APIConfig = field( default_factory=APIConfig )
+    ## <summary>Git 版本控制設定</summary>
+    git: GitConfig = field( default_factory=GitConfig )
 # endregion
 
 
@@ -406,6 +427,7 @@ class ConfigManager:
             search=SearchConfig( **_Raw.get( "search", {} ) ),
             database=DatabaseConfig( **_Raw.get( "database", {} ) ),
             api=APIConfig( **_Raw.get( "api", {} ) ),
+            git=GitConfig( **_Raw.get( "git", {} ) ),
         )
 
         # .env 覆蓋：密鑰類欄位從環境變數讀取

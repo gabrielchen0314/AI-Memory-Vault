@@ -144,14 +144,16 @@ class _StdoutToStderr:
 
 # ── Tool: search_vault ─────────────────────────────────────
 @mcp.tool()
-def search_vault( query: str, category: str = "", doc_type: str = "" ) -> str:
+def search_vault( query: str, category: str = "", doc_type: str = "", mode: str = "" ) -> str:
     """
     搜尋 AI Memory Vault 記憶庫（BM25 關鍵字 + 向量語意混合搜尋）。
     可依 category（workspaces/personal/knowledge）或 doc_type（rule/project/meeting）過濾。
+    mode 可指定搜尋偏好：\"keyword\"（BM25 偏重，適合精確關鍵字）、\"semantic\"（Vector 偏重，適合語意查詢）；
+    留空為均衡模式（BM25 40% + Vector 60%）。
     """
     from services.vault import VaultService
     with _StdoutToStderr():
-        _Result = VaultService.search_formatted( query, category, doc_type )
+        _Result = VaultService.search_formatted( query, category, doc_type, mode )
     return _Result if _Result else "記憶庫中找不到相關資料。"
 
 
@@ -507,6 +509,29 @@ def delete_note( file_path: str ) -> str:
     if _Error:
         return f"Error: {_Error}"
     return f"Deleted: {file_path}. Removed {_Stats['deleted_chunks']} chunks from DB."
+
+
+# ── Tool: extract_knowledge ───────────────────────────────
+@mcp.tool()
+def extract_knowledge( organization: str, project: str, topic: str, session: str = "" ) -> str:
+    """
+    從指定專案的 conversations/ 萃取知識卡片，寫入 knowledge/{date}-{topic}.md。
+    掃描對話檔案的標題與重點條列，生成知識卡片草稿供人工審閱。
+    冪等：已存在同 topic 的卡片時，以追加模式補充新來源連結。
+    organization: 組織名稱（例如 LIFEOFDEVELOPMENT）。
+    project:      專案名稱（例如 ai-memory-vault）。
+    topic:        知識主題（英文 slug，例如 chromadb-sync）。
+    session:      篩選特定 session 名稱（留空 = 掃描所有）。
+    """
+    from config import ConfigManager
+    from services.knowledge_extractor import KnowledgeExtractor
+    with _StdoutToStderr():
+        _Config = ConfigManager.load()
+        _Extractor = KnowledgeExtractor( _Config )
+        _Path, _Err = _Extractor.extract( organization, project, topic, session or None )
+    if _Err:
+        return _Err
+    return f"Knowledge card ready: {_Path}"
 
 
 def run_mcp_server() -> None:

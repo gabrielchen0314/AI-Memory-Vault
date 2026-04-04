@@ -62,6 +62,11 @@ def main():
         action="store_true",
         help="啟動 APScheduler 守護模式（weekly/monthly/daily 自動生成摘要）",
     )
+    _Parser.add_argument(
+        "--menu",
+        action="store_true",
+        help="CLI 選單模式（方向鍵圓式選單，預設 CLI 指令列）",
+    )
     _Args = _Parser.parse_args()
 
     from config import ConfigManager
@@ -110,7 +115,7 @@ def main():
         sys.stdout = _RealStdout
         _start_mcp()
     else:
-        _start_cli( _Config )
+        _start_cli( _Config, getattr( _Args, "menu", False ) )
 
 
 def _bootstrap( iConfig ):
@@ -526,9 +531,14 @@ def _start_scheduler():
     _Sched.block()
 
 
-def _start_cli( iConfig ):
+def _start_cli( iConfig, iMenu: bool = False ):
     """啟動 CLI 互動模式。"""
-    print( "🔧 CLI 模式尚未實作（V3 Phase 2）" )
+    from cli.repl import VaultRepl
+    _Repl = VaultRepl( iConfig )
+    if iMenu:
+        _Repl.run_menu()
+    else:
+        _Repl.run()
 
 
 def _start_api( iConfig ):

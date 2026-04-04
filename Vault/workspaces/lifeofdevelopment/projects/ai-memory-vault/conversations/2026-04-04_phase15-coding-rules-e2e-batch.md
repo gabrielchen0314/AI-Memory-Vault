@@ -1,3 +1,11 @@
+---
+type: conversation
+organization: LIFEOFDEVELOPMENT
+project: ai-memory-vault
+date: 2026-04-04
+session: phase15-coding-rules-e2e-batch
+---
+
 # Phase 15 — Coding Rules + E2E + batch_write_notes + update_todo
 
 ## 對話摘要

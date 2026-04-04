@@ -14,7 +14,7 @@ from typing import Optional
 
 import yaml
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
-from langchain_text_splitters import MarkdownHeaderTextSplitter
+from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 from langchain_core.indexing import index as langchain_index
 from langchain_core.documents import Document
 
@@ -36,21 +36,33 @@ class VaultIndexer:
     #region 成員變數
     ## <summary>Vault 根目錄絕對路徑</summary>
     m_VaultRoot: str
-    ## <summary>Markdown 切塊器</summary>
+    ## <summary>Markdown 標題切塊器（第一階）</summary>
     m_Splitter: MarkdownHeaderTextSplitter
+    ## <summary>字元切塊器（第二階，處理超大 chunk）</summary>
+    m_CharSplitter: RecursiveCharacterTextSplitter
+    ## <summary>單一 chunk 最大字元數閾值</summary>
+    m_ChunkSize: int
     #endregion
 
-    def __init__( self, iVaultRoot: str ):
+    def __init__( self, iVaultRoot: str, iChunkSize: int = 500, iChunkOverlap: int = 50 ):
         """
         建立索引器。
 
         Args:
-            iVaultRoot: Vault 根目錄絕對路徑。
+            iVaultRoot:    Vault 根目錄絕對路徑。
+            iChunkSize:    單一 chunk 最大字元數（預設 500）。
+            iChunkOverlap: 相鄰 chunk 重疊字元數（預設 50）。
         """
-        self.m_VaultRoot = iVaultRoot
-        self.m_Splitter = MarkdownHeaderTextSplitter(
+        self.m_VaultRoot    = iVaultRoot
+        self.m_ChunkSize    = iChunkSize
+        self.m_Splitter     = MarkdownHeaderTextSplitter(
             headers_to_split_on=HEADERS_TO_SPLIT,
             strip_headers=False,
+        )
+        self.m_CharSplitter = RecursiveCharacterTextSplitter(
+            chunk_size=iChunkSize,
+            chunk_overlap=iChunkOverlap,
+            separators=[ "\n\n", "\n", "\uff0c", "\u3002", "\uff1b", " ", "" ],
         )
 
     #region 公開方法
@@ -93,12 +105,12 @@ class VaultIndexer:
                 _DocType = _Chunks[0].metadata.get( "type", "" ) or "未標註"
                 _TypeCounter[_DocType] = _TypeCounter.get( _DocType, 0 ) + len( _Chunks )
 
-        # 4. 增量寫入 ChromaDB
+        # 4. 全量掃描寫入 ChromaDB（full 模式：清除不在本次掃描中的孤立向量）
         _Stats = langchain_index(
             _TaggedChunks,
             get_record_manager(),
             get_vectorstore(),
-            cleanup="incremental",
+            cleanup="full",
             source_id_key="source",
             key_encoder="blake2b",
         )
@@ -280,11 +292,21 @@ class VaultIndexer:
         else:
             _DocMeta["tags"] = str( _Tags ) if _Tags else ""
 
-        _Chunks = self.m_Splitter.split_text( _Body )
-        for _Chunk in _Chunks:
+        _HeaderChunks = self.m_Splitter.split_text( _Body )
+
+        # 第二階：對超出 size 上限的 chunk 再切（保留 header metadata）
+        _FinalChunks: list = []
+        for _HC in _HeaderChunks:
+            if len( _HC.page_content ) > self.m_ChunkSize:
+                _SubDocs = self.m_CharSplitter.split_documents( [ _HC ] )
+                _FinalChunks.extend( _SubDocs )
+            else:
+                _FinalChunks.append( _HC )
+
+        for _Chunk in _FinalChunks:
             _Chunk.metadata.update( _DocMeta )
 
-        return _Chunks
+        return _FinalChunks
 
     @staticmethod
     def _resolve_category( iSourcePath: str ) -> str:

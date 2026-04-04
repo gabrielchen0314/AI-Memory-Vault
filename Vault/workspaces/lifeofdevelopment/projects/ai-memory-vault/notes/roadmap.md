@@ -3,7 +3,7 @@ type: roadmap
 project: ai-memory-vault
 org: LIFEOFDEVELOPMENT
 created: 2026.04.04
-last_updated: 2026.04.04
+last_updated: 2026.04.05
 ---
 
 # 專案 Roadmap — AI Memory Vault
@@ -51,7 +51,7 @@ AI-powered Vault 知識管理系統，以 MCP Server 形式整合至 VS Code / C
 ### Phase 15（品質 + 穩健性）✅
 - E2E 35/35 全通過 ✅
 - `check_vault_integrity`、`batch_write_notes`、`update_todo` MCP tool ✅
-- `generate_*_review` 冪等修正（永遠覆寫）✅
+- `generate_*_review` 冪等修正（永遠覆蓋）✅
 - Coding 規則 3 層架構建立 ✅
 
 ### Phase 16（工具補齊 + 規則整合）✅
@@ -71,43 +71,53 @@ AI-powered Vault 知識管理系統，以 MCP Server 形式整合至 VS Code / C
   - `VaultWriteConventions.instructions.md`
 - E2E Step 12（vscode integration，46/46 PASS）✅
 
+### Phase 18（Scheduler 增強）✅
+- Weekly/monthly 自動觸發（APScheduler，週一/月初自動生成）✅
+- Daily note AI 彙整（`_scan_today_conversations()` + daily template 加入「今日 AI 對話」區塊）✅
+- `auto_tasks.ps1` 修正 3 個舊方法名 ✅
+- Embedding 策略評估（chunk_size=500 / overlap=50 已設定可調）✅
+- 混合搜尋模式預設（BM25 0.4 / Vector 0.6）+ keyword/semantic 指定模式 ✅
+
+---
+
+## 已完成
+
+### Phase 19（功能補齊 + 技術負債清除）✅
+- [x] `generate_project_daily` 內容預填充（從 status.md 待辦事項自動填入「今日計畫」）
+- [x] CLI REPL 實作（`cli/repl.py` — 13 個指令，直接呼叫 VaultService / SchedulerService，E2E Step 16 89/89 PASS）
+- [x] Scheduler 單元測試（`tests/test_scheduler.py` 42 個測試，conftest.py stub VaultService，E2E Step 17 90/90 PASS）
+- [x] CLI REPL 對齊 MCP 工具（新增 `review` / `genstatus` / `log` / `aiweekly` / `aimonthly` 和別名，E2E Step 18 106/106 PASS）
+- [x] CLI 自動化同步（`tools/registry.py` 宣告式登記表，repl.py 自動橋接，E2E Step 19 166/166 PASS）
+
 ---
 
 ## 進行中
 
-### Phase 18（Scheduler 增強）
+### Phase 20（版本控制 + 知識萃取）
 
-#### Scheduler ✅
-- [x] Weekly/monthly 自動觸發（APScheduler，週一/月初自動生成）
-- [x] Daily note AI 彙整（`_scan_today_conversations()` + daily template 加入「今日 AI 對話」區塊）
+#### Vault Git 版本控制 ✅
+- [x] `services/git_service.py`（GitService：ensure_repo, commit, commit_delete）
+- [x] `config.py` 新增 `GitConfig`（auto_commit: bool, author_name, author_email）
+- [x] `VaultService.write_note()` / `delete_note()` / `batch_write_notes()` 鉤入 git commit
+- [x] E2E Step 20（Git 整合，17 checks，183/183 PASS）
 
-#### Bug Fix ✅
-- [x] `auto_tasks.ps1` 修正 3 個舊方法名（generate_daily/weekly/monthly_review → _summary）
+#### 知識萃取自動化（待實作）
+- [ ] `conversations/` → `knowledge/` 自動提取（LLM 摘要 + 關鍵字卡片）
+- [ ] 新增 MCP tool：`extract_knowledge`
 
-#### 搜尋品質
-- [ ] Embedding 策略評估（chunk_size / overlap 調整）
-- [ ] 混合搜尋比重優化（BM25/Vector 比重依場景調校）
-
----
-
-## 中期計畫（Phase 19 — v3 UI）
-
-| 階段 | 內容 | 技術 |
-|------|------|------|
-| v3 Phase 2 | 聊天介面 + 搜尋 + 設定 UI | Tauri + React |
-| v3 Phase 3 | GitHub Copilot SDK 整合 + OAuth | copilot-sdk (Python) |
-| v3 Phase 4 | 打包發布 `.msi` / `.dmg` | Tauri CLI |
+#### Token 分析（待實作）
+- [ ] `log_conversation` 加入 token_count 欄位（可選，從 LLM response 擷取）
+- [ ] AI 週報/月報 token 統計欄位自動計算
 
 ---
 
-## 長期展望（Phase 20+）
+## 長期展望（Phase 21+）
 
 | 方向 | 說明 |
 |------|------|
+| v3 UI | Tauri + React 聊天介面 + 搜尋 + 設定面板 |
 | Web UI | 輕量 Next.js dashboard |
 | 多使用者 | team Vault 支援 |
-| Vault 版本控制 | Git 整合 — 每次寫入自動 commit |
-| 知識萃取自動化 | conversations/ → knowledge/ 自動提取 |
 | Mobile | Obsidian Mobile + MCP 遠端連線 |
 
 ---
@@ -116,33 +126,32 @@ AI-powered Vault 知識管理系統，以 MCP Server 形式整合至 VS Code / C
 
 | 負債項目 | 嚴重度 | 說明 |
 |---------|------|------|
-| Scheduler 無單元測試 | 中 | 邏輯複雜，但完全依賴 E2E 和手動驗證 |
+| Scheduler 單元測試 | ✅ | 42 個測試，conftest.py stub，E2E Step 17 整合 |
+| CLI REPL 與 MCP 功能未對齊 | ✅ | Phase 19 全部補齊 + 自動化同步 |
 | ChromaDB migration 機制 | 中 | Schema 變更時無 migration 路徑 |
-| `generate_project_daily` 內容空白 | 中 | 只生成框架，AI 需額外呼叫 write_note 填入 |
-| CLI REPL 與 MCP 功能未對齊 | 低 | REPL 不支援多數新工具 |
 | Token 分析欄位空白 | 低 | AI 週報/月報 Token 欄位無自動計算 |
 
 ---
 
 ## MCP Tools 清單（18 個）
 
-| Tool | 版本加入 | 說明 |
-|------|---------|------|
-| `search_vault` | v1 | BM25 + 向量混合搜尋 |
-| `sync_vault` | v1 | 增量同步 .md → ChromaDB |
-| `read_note` | v1 | 讀取 Vault 筆記原始內容 |
-| `write_note` | v1 | 寫入/更新 Vault 筆記 + 索引 |
-| `generate_project_daily` | v3 | 專案每日進度模板（冪等）|
-| `generate_daily_review` | v3 | 每日總進度表（永遠覆寫，支援 projects 參數）|
-| `generate_weekly_review` | v3 | 每週總進度表（永遠覆寫）|
-| `generate_monthly_review` | v3 | 每月總進度表（永遠覆寫）|
-| `log_ai_conversation` | v3 | 記錄 AI 對話至 conversations/ |
-| `generate_ai_weekly_analysis` | v3 | AI 對話週報分析模板 |
-| `generate_ai_monthly_analysis` | v3 | AI 對話月報分析模板 |
-| `generate_project_status` | v3.2 | status.md 模板生成（冪等）|
-| `list_projects` | v3.2 | 列出所有組織及專案 |
-| `batch_write_notes` | v3.3 | 批次寫入多筆，單次 ChromaDB 索引 |
-| `update_todo` | v3.3 | todo checkbox toggle（不覆蓋全文）|
-| `check_vault_integrity` | v3.3 | 孤立 ChromaDB 向量偵測 |
-| `get_project_status` | v3.4 | status.md 結構化讀取 |
-| `delete_note` | v3.5 | 刪除 .md 並移除 ChromaDB 向量 |
+| Tool                           | 版本加入 | 說明                          |
+| ------------------------------ | ---- | --------------------------- |
+| `search_vault`                 | v1   | BM25 + 向量混合搜尋               |
+| `sync_vault`                   | v1   | 增量同步 .md → ChromaDB         |
+| `read_note`                    | v1   | 讀取 Vault 筆記原始內容             |
+| `write_note`                   | v1   | 寫入/更新 Vault 筆記 + 索引         |
+| `generate_project_daily`       | v3   | 專案每日進度模板（冪等）                |
+| `generate_daily_review`        | v3   | 每日總進度表（永遠覆寫，支援 projects 參數） |
+| `generate_weekly_review`       | v3   | 每週總進度表（永遠覆寫）                |
+| `generate_monthly_review`      | v3   | 每月總進度表（永遠覆寫）                |
+| `log_ai_conversation`          | v3   | 記錄 AI 對話至 conversations/    |
+| `generate_ai_weekly_analysis`  | v3   | AI 對話週報分析模板                 |
+| `generate_ai_monthly_analysis` | v3   | AI 對話月報分析模板                 |
+| `generate_project_status`      | v3.2 | status.md 模板生成（冪等）          |
+| `list_projects`                | v3.2 | 列出所有組織及專案                   |
+| `batch_write_notes`            | v3.3 | 批次寫入多筆，單次 ChromaDB 索引       |
+| `update_todo`                  | v3.3 | todo checkbox toggle（不覆蓋全文） |
+| `check_vault_integrity`        | v3.3 | 孤立 ChromaDB 向量偵測            |
+| `get_project_status`           | v3.4 | status.md 結構化讀取             |
+| `delete_note`                  | v3.5 | 刪除 .md 並移除 ChromaDB 向量      |

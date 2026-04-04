@@ -55,7 +55,11 @@ class VaultService:
         """
         cls.m_VaultRoot = os.path.realpath( iConfig.vault_path )
         cls.m_Config = iConfig
-        cls.m_Indexer = VaultIndexer( cls.m_VaultRoot )
+        cls.m_Indexer = VaultIndexer(
+            cls.m_VaultRoot,
+            iConfig.embedding.chunk_size,
+            iConfig.embedding.chunk_overlap,
+        )
         cls.m_Retriever = VaultRetriever( iConfig )
         cls.m_IsInitialized = True
     #endregion
@@ -201,6 +205,16 @@ class VaultService:
         # 寫入後自動索引（單檔增量）
         _Stats = cls.m_Indexer.sync_single( _AbsPath )
 
+        # Git 自動提交（若已啟用）
+        if cls.m_Config and cls.m_Config.git.auto_commit:
+            from services.git_service import GitService
+            _Gc = cls.m_Config.git
+            GitService.commit(
+                cls.m_VaultRoot, iFilePath,
+                f"write: {iFilePath}",
+                _Gc.author_name, _Gc.author_email,
+            )
+
         return {
             "file_path": iFilePath,
             "chars": len( iContent ),
@@ -256,6 +270,21 @@ class VaultService:
 
         # 一次批次索引所有成功寫入的檔案
         _BatchStats = cls.m_Indexer.sync_batch( _AbsPathsToIndex )
+
+        # Git 自動提交（批次加入後一次 commit）
+        if cls.m_Config and cls.m_Config.git.auto_commit and _AbsPathsToIndex:
+            from services.git_service import GitService
+            _Gc = cls.m_Config.git
+            _Paths = " ".join(
+                os.path.relpath( p, cls.m_VaultRoot ).replace( "\\", "/" )
+                for p in _AbsPathsToIndex
+            )
+            _Msg = f"batch-write: {len(_AbsPathsToIndex)} files"
+            GitService.commit(
+                cls.m_VaultRoot, ".",
+                _Msg,
+                _Gc.author_name, _Gc.author_email,
+            )
 
         return _Results, _BatchStats, None
 
@@ -323,6 +352,7 @@ class VaultService:
         iCategory: str = "",
         iDocType: str = "",
         iTopK: Optional[int] = None,
+        iMode: str = "",
     ) -> list:
         """
         執行語意搜尋。
@@ -332,12 +362,13 @@ class VaultService:
             iCategory: 過濾分類。
             iDocType:  過濾文件類型。
             iTopK:     回傳筆數。
+            iMode:     搜尋模式（"keyword" / "semantic" / ""）。
 
         Returns:
             搜尋結果列表。
         """
         cls._ensure_initialized()
-        return cls.m_Retriever.search( iQuery, iCategory, iDocType, iTopK )
+        return cls.m_Retriever.search( iQuery, iCategory, iDocType, iTopK, iMode )
 
     @classmethod
     def search_formatted(
@@ -345,6 +376,7 @@ class VaultService:
         iQuery: str,
         iCategory: str = "",
         iDocType: str = "",
+        iMode: str = "",
     ) -> str:
         """
         執行語意搜尋，回傳格式化文字。
@@ -353,12 +385,13 @@ class VaultService:
             iQuery:    搜尋文字。
             iCategory: 過濾分類。
             iDocType:  過濾文件類型。
+            iMode:     搜尋模式（"keyword" / "semantic" / ""）。
 
         Returns:
             格式化搜尋結果字串。
         """
         cls._ensure_initialized()
-        return cls.m_Retriever.search_formatted( iQuery, iCategory, iDocType )
+        return cls.m_Retriever.search_formatted( iQuery, iCategory, iDocType, iMode )
 
     @classmethod
     def sync( cls ) -> dict:
@@ -394,6 +427,16 @@ class VaultService:
         os.remove( _AbsPath )
 
         _Stats = cls.m_Indexer.delete_source( _AbsPath )
+
+        # Git 自動提交（刪除後）
+        if cls.m_Config and cls.m_Config.git.auto_commit:
+            from services.git_service import GitService
+            _Gc = cls.m_Config.git
+            GitService.commit(
+                cls.m_VaultRoot, iFilePath,
+                f"delete: {iFilePath}",
+                _Gc.author_name, _Gc.author_email,
+            )
 
         return {
             "file_path": iFilePath,
