@@ -1,30 +1,34 @@
-# Python 虛擬環境
+# Python
+__pycache__/
+*.py[cod]
+*.class
 .venv/
 venv/
 ENV/
-
-# 編譯產物
-__pycache__/
-*.pyc
-
-# 機器學習模型或大型權重 (建議)
-*.pth
-*.onnx
-
-# 環境變數（含 API Key 等敏感設定）
 .env
 .env.*
 !.env.example
 
-# 執行日誌
-*.log
+# Machine Learning
+*.pth
+*.onnx
 
-# 向量資料庫（執行時產生）
-_AI_Engine/chroma_db/
+# AI Engine
+AI_Engine/chroma_db/
+AI_Engine/*.log
+AI_Engine/*.sql
 
-# 快取資料庫
-_AI_Engine/record_manager_cache.sql
+# IDE
+.vscode/*
+!.vscode/mcp.json
+!.vscode/settings.json
+.idea/
 
-# 排除視窗佈局
+# OS
+.DS_Store
+Thumbs.db
+
+# Obsidian
+.obsidian/
 .obsidian/workspace.json
 .obsidian/workspace-mobile.json

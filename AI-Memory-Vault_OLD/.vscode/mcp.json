@@ -1,0 +1,13 @@
+{
+    "servers": {
+        "ai-memory-vault": {
+            "type": "stdio",
+            "command": "${workspaceFolder}/_AI_Engine/.venv/Scripts/python.exe",
+            "args": [
+                "${workspaceFolder}/_AI_Engine/main.py",
+                "--mode",
+                "mcp"
+            ]
+        }
+    }
+}

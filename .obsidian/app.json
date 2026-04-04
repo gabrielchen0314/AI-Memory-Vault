@@ -1,5 +1,3 @@
 {
-  "userIgnoreFilters": [
-    "_AI_Engine/*.*"
-  ]
+  "alwaysUpdateLinks": true
 }

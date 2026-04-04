@@ -1,5 +1,0 @@
-/* 隱藏特定資料夾 */
-div[data-path="_AI_Engine"], 
-div[data-path="_AI_Engine"] + .nav-folder-children {
-    display: none !important;
-}
