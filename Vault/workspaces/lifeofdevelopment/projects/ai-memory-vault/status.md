@@ -2,7 +2,7 @@
 type: status
 project: ai-memory-vault
 org: LIFEOFDEVELOPMENT
-last_updated: 2026.04.04
+last_updated: 2026.04.04b
 ---
 
 # ai-memory-vault 專案狀態
@@ -29,6 +29,14 @@ last_updated: 2026.04.04
 - `auto_tasks.ps1`：修正 3 個已更名的 method（generate_daily/weekly/monthly_review → _summary）✅
 - E2E Step 13（AutoScheduler，6 checks）→ 52/52 PASS ✅
 - `apscheduler>=3.10` 加入 `requirements.txt` ✅
+
+**Phase 18 end-of-day 追加（2026-04-04b）：**
+- `.gitignore` 整合 OLD 專案缺失條目（venv、ENV、*.pth、*.onnx、.env.*、Obsidian workspace）✅
+- `mcp_app/server.py`：`_load_vault_instructions()` 改為 frontmatter-driven ✅
+  - 掃描所有 `_config/*.md`，含 `inject: true` 者自動注入，hardcode 廢除
+  - `_config/nav.md`、`handoff.md`、`end-of-day-checklist.md` 加入 `inject: true`
+  - 根本修正「收工漏掉 handoff 步驟」bug
+- E2E 52/52 PASS 持續（無 regression）✅
 
 **兩套排程系統說明：**
 - `.bat` + Windows Task Scheduler：主要使用（可設定、開機恢復）

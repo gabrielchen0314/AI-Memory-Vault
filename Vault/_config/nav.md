@@ -2,6 +2,7 @@
 type: system
 created: 2026.04.01
 last_updated: 2026.04.04
+inject: true
 ---
 
 # 🗺️ Vault 導航地圖

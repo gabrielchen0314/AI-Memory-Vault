@@ -2,6 +2,7 @@
 type: system
 created: 2026.04.04
 last_updated: 2026.04.04
+inject: true
 ---
 
 # 🔚 收工檢查清單（End-of-Day Checklist）

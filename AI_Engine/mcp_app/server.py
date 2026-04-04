@@ -23,30 +23,49 @@ from mcp.server.fastmcp import FastMCP
 
 def _load_vault_instructions() -> str:
     """
-    從 Vault _config/ 讀取 nav.md 與 handoff.md，拼接為 MCP instructions。
-    若檔案不存在則回傳空字串（首次 setup 前不會有這些檔案）。
+    自動掃描 Vault _config/ 目錄，注入所有含 `inject: true` frontmatter 的 .md 檔。
+    新增 _config/ 檔案時只需在 frontmatter 加 `inject: true`，無需修改程式碼。
+    若 Vault 尚未初始化則回傳空字串。
 
     Returns:
-        拼接後的 instructions 字串。
+        拼接後的 instructions 字串（以 --- 分隔各節）。
     """
     from config import ConfigManager
 
     if not ConfigManager.is_initialized():
         return ""
 
-    _Config = ConfigManager.load()
+    _Config    = ConfigManager.load()
     _VaultRoot = _Config.vault_path
-    _P = _Config.paths
-    _Sections = []
+    _ConfigDir = os.path.join( _VaultRoot, _Config.paths.config )
+    _Sections  = []
 
-    for _RelPath, _Label in [
-        ( f"{_P.config}/nav.md", "Vault 導航地圖" ),
-        ( f"{_P.config}/handoff.md", "Session 交接索引" ),
-    ]:
-        _AbsPath = os.path.join( _VaultRoot, _RelPath )
-        if os.path.isfile( _AbsPath ):
+    if not os.path.isdir( _ConfigDir ):
+        return ""
+
+    for _FileName in sorted( os.listdir( _ConfigDir ) ):
+        if not _FileName.endswith( ".md" ):
+            continue
+        _AbsPath = os.path.join( _ConfigDir, _FileName )
+        try:
             with open( _AbsPath, "r", encoding="utf-8" ) as _F:
-                _Sections.append( f"## {_Label}\n\n{_F.read()}" )
+                _Raw = _F.read()
+        except OSError:
+            continue
+
+        # 解析 frontmatter：只注入含 inject: true 的檔案
+        if not _Raw.startswith( "---" ):
+            continue
+        _End = _Raw.find( "---", 3 )
+        if _End == -1:
+            continue
+        _Frontmatter = _Raw[3:_End]
+        if "inject: true" not in _Frontmatter:
+            continue
+
+        # 以 h2 標題包裹（用檔名去掉 .md 作標籤）
+        _Label = _FileName[:-3]
+        _Sections.append( f"## {_Label}\n\n{_Raw}" )
 
     return "\n\n---\n\n".join( _Sections ) if _Sections else ""
 
