@@ -9,9 +9,6 @@
 @date 2026.04.01
 """
 from functools import lru_cache
-from langchain_chroma import Chroma
-from langchain_community.indexes._sql_record_manager import SQLRecordManager
-from .embeddings import get_embeddings
 
 
 # ── 模組級設定（由 initialize() 注入）─────────────────────
@@ -39,8 +36,11 @@ def initialize( iChromaDir: str, iRecordDbUrl: str, iCollectionName: str = "vaul
 
 
 @lru_cache( maxsize=1 )
-def get_vectorstore() -> Chroma:
+def get_vectorstore():
     """取得 ChromaDB 向量資料庫實例（單例）。"""
+    # 延遲載入：避免 frozen exe 在 import 階段就觸發 chromadb/torch DLL 載入
+    from langchain_chroma import Chroma
+    from .embeddings import get_embeddings
     if not _g_ChromaDir:
         raise RuntimeError( "vectorstore 尚未初始化，請先呼叫 vectorstore.initialize()。" )
     return Chroma(
@@ -51,8 +51,10 @@ def get_vectorstore() -> Chroma:
 
 
 @lru_cache( maxsize=1 )
-def get_record_manager() -> SQLRecordManager:
+def get_record_manager():
     """取得 SQLRecordManager 實例（單例），用於增量索引追蹤。"""
+    # 延遲載入
+    from langchain_community.indexes._sql_record_manager import SQLRecordManager
     if not _g_RecordDbUrl:
         raise RuntimeError( "record_manager 尚未初始化，請先呼叫 vectorstore.initialize()。" )
     _Manager = SQLRecordManager( f"chroma/{_g_CollectionName}", db_url=_g_RecordDbUrl )

@@ -8,6 +8,7 @@ AI Memory Vault v3 — 入口程式
     python main.py --mode api               → FastAPI 伺服器
     python main.py --mode mcp               → MCP stdio 伺服器
     python main.py --scheduler              → 啟動 APScheduler 守護模式（週/月/日自動生成）
+    python main.py --reindex                → 清除向量索引並重建（嵌入模型/chunk設定變更後使用）
     python main.py --setup                  → 強制重新執行完整 Setup Wizard
     python main.py --setup-section vault    → 僅設定 Vault 路徑
     python main.py --setup-section user     → 僅設定使用者資訊
@@ -15,26 +16,182 @@ AI Memory Vault v3 — 入口程式
     python main.py --setup-section llm      → 僅設定 LLM
 
 @author gabrielchen
-@version 3.3
+@version 3.5
 @since AI-Memory-Vault 3.0
-@date 2026.04.04
+@date 2026.04.10
 """
 import argparse
 import sys
 import os
+from pathlib import Path
+
+# ── 凍結模式：強制 stdout/stderr 使用 UTF-8，避免 Windows codepage 導致 crash ──
+if getattr( sys, 'frozen', False ):
+    try:
+        sys.stdout.reconfigure( encoding='utf-8', errors='replace' )
+        sys.stderr.reconfigure( encoding='utf-8', errors='replace' )
+    except Exception:
+        pass
 
 # 確保 AI_Engine 目錄在 sys.path 中
-_ENGINE_DIR = os.path.dirname( os.path.abspath( __file__ ) )
+# PyInstaller frozen 模式：__file__ 指向 bundle 內部，改用 sys.executable 所在目錄
+if getattr( sys, 'frozen', False ):
+    _ENGINE_DIR = os.path.dirname( sys.executable )
+else:
+    _ENGINE_DIR = os.path.dirname( os.path.abspath( __file__ ) )
 if _ENGINE_DIR not in sys.path:
     sys.path.insert( 0, _ENGINE_DIR )
 os.chdir( _ENGINE_DIR )
 
-## <summary>--setup-section 允許的區段名稱</summary>
-SETUP_SECTIONS = [ "vault", "user", "org", "llm" ]
+
+from cli.setup_commands import SETUP_SECTIONS
+
+
+# ── 依賴檢查（僅使用 stdlib，在任何 import 之前執行）──────────
+
+def _find_missing_packages() -> list:
+    """
+    快速掃描關鍵套件是否可用（stdlib importlib，無需 pip）。
+
+    Returns:
+        缺少的 pip 套件名稱清單；若全部已安裝則回傳空清單。
+    """
+    import importlib.util as _ilu
+
+    ## <summary>關鍵套件對照表：(module_name, pip_package_name)</summary>
+    _CANARIES = [
+        ( "langchain",             "langchain" ),
+        ( "chromadb",              "chromadb" ),
+        ( "sentence_transformers", "sentence-transformers" ),
+        ( "mcp",                   "mcp[cli]" ),
+        ( "apscheduler",           "apscheduler" ),
+        ( "questionary",           "questionary" ),
+    ]
+    return [
+        _PkgName
+        for _ModName, _PkgName in _CANARIES
+        if _ilu.find_spec( _ModName ) is None
+    ]
+
+
+def _ask_install_gui( iMissing: list ) -> bool:
+    """
+    以 tkinter 彈窗詢問使用者是否安裝缺少的套件。
+
+    Args:
+        iMissing: 缺少的 pip 套件名稱清單。
+
+    Returns:
+        True = 同意安裝；False = 拒絕；None = tkinter 不可用（需降級）。
+    """
+    try:
+        import tkinter as _tk
+        from tkinter import messagebox as _mb
+
+        _Names = "\n".join( f"  • {_P}" for _P in iMissing )
+        _Msg = (
+            f"偵測到以下套件尚未安裝：\n\n{_Names}\n\n"
+            "是否立即安裝（pip install -r requirements.txt）？"
+        )
+        _Root = _tk.Tk()
+        _Root.withdraw()                  # 隱藏主視窗
+        _Root.attributes( "-topmost", True )  # 彈窗置頂
+        _Result = _mb.askyesno( "AI Memory Vault — 缺少套件", _Msg )
+        _Root.destroy()
+        return _Result
+
+    except Exception:
+        return None  # tkinter 不可用 → 呼叫端降級為終端機提示
+
+
+def _check_and_install_deps() -> None:
+    """
+    啟動前依賴自動檢查與安裝引導。
+    僅在套件真正缺少時才觸發，正常啟動零額外耗費。
+
+    執行模式策略：
+        CLI / Scheduler：先嘗試 tkinter 彈窗，失敗時降級為 terminal input()。
+        MCP：不可使用 GUI 或 stdin（VS Code 自動啟動），改為靜默安裝到 stderr。
+    """
+    import subprocess
+
+    _Missing = _find_missing_packages()
+    if not _Missing:
+        return  # 全部已安裝，直接跳過
+
+    _ReqFile = os.path.join( _ENGINE_DIR, "requirements.txt" )
+    _IsMcp   = "--mode" in sys.argv and "mcp" in sys.argv
+
+    # ── MCP 模式：靜默安裝 ────────────────────────────────
+    if _IsMcp:
+        print( "[ai-memory-vault] ⚙️  缺少依賴套件，正在安裝中…", file=sys.stderr )
+        _Ret = subprocess.run(
+            [ sys.executable, "-m", "pip", "install", "-r", _ReqFile, "-q" ],
+            stderr=sys.stderr,
+        )
+        if _Ret.returncode != 0:
+            print( "[ai-memory-vault] ❌ 依賴安裝失敗，請手動執行：", file=sys.stderr )
+            print( f"  pip install -r {_ReqFile}", file=sys.stderr )
+            sys.exit( 1 )
+        return
+
+    # ── CLI / Scheduler 模式：詢問使用者 ─────────────────
+    _Confirmed = _ask_install_gui( _Missing )
+
+    if _Confirmed is None:
+        # tkinter 不可用 → 終端機降級
+        print( "\n⚠️  偵測到缺少以下套件：" )
+        for _P in _Missing:
+            print( f"  • {_P}" )
+        _Ans = input( "\n是否立即安裝（pip install -r requirements.txt）？[Y/n]: " ).strip().lower()
+        _Confirmed = ( _Ans != "n" )
+
+    if not _Confirmed:
+        print( "已取消。請手動安裝後再啟動：" )
+        print( f"  pip install -r requirements.txt" )
+        sys.exit( 0 )
+
+    # ── 執行安裝 ──────────────────────────────────────────
+    print( "\n📦 正在安裝依賴套件（pip install -r requirements.txt）…\n" )
+    _Ret = subprocess.run(
+        [ sys.executable, "-m", "pip", "install", "-r", _ReqFile ],
+    )
+    if _Ret.returncode != 0:
+        print( "\n❌ 安裝失敗，請手動執行：" )
+        print( f"  pip install -r {_ReqFile}" )
+        sys.exit( 1 )
+    print( "\n✅ 安裝完成，繼續啟動…\n" )
+
+
+def _detect_frozen_mode() -> None:
+    """
+    PyInstaller 打包後，根據執行檔名稱自動設定執行模式。
+    僅在 sys.frozen 且尚未傳入任何引數時生效，避免覆蓋明確的命令列參數。
+
+      vault-mcp.exe       → --mode mcp
+      vault-scheduler.exe → --scheduler
+      vault-cli.exe       → 沿用 argparse 預設（CLI 模式）
+    """
+    if not getattr( sys, 'frozen', False ):
+        return
+    if len( sys.argv ) > 1:
+        return  # 已有明確參數，不覆蓋
+    _Exe = os.path.basename( sys.executable ).lower()
+    if 'mcp' in _Exe:
+        sys.argv.extend( [ '--mode', 'mcp' ] )
+    elif 'scheduler' in _Exe:
+        # 預設執行一次（Windows 工作排程器用）；明確傳 --scheduler 才進守護模式
+        sys.argv.append( '--once' )
+    # vault-cli.exe：不加參數，argparse 預設即 CLI 模式
 
 
 def main():
-    """主入口：解析參數 → 檢查初始化 → 分發執行模式。"""
+    """主入口：依賴檢查 → 解析參數 → 檢查初始化 → 分發執行模式。"""
+    _detect_frozen_mode()
+    # frozen 模式下套件已內嵌，跳過依賴安裝檢查
+    if not getattr( sys, 'frozen', False ):
+        _check_and_install_deps()
+
     _Parser = argparse.ArgumentParser( description="AI Memory Vault v3 — 記憶庫引擎" )
     _Parser.add_argument(
         "--mode",
@@ -67,24 +224,78 @@ def main():
         action="store_true",
         help="CLI 選單模式（方向鍵圓式選單，預設 CLI 指令列）",
     )
+    _Parser.add_argument(
+        "--reindex",
+        action="store_true",
+        help="清除向量索引並完整重建（嵌入模型或 chunk 設定變更後使用）",
+    )
+    _Parser.add_argument(
+        "--once",
+        action="store_true",
+        help="執行一次所有適用於今日的排程任務後結束（Windows 工作排程器用）",
+    )
+    _Parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="非互動模式（Windows Task Scheduler 後台執行，跳過 Enter 等待）",
+    )
+    _Parser.add_argument(
+        "--daily-only",
+        action="store_true",
+        help="僅執行每日摘要，忽略週報/月報/同步（搭配 --once 使用）",
+    )
+    _Parser.add_argument(
+        "--task",
+        type=str,
+        default=None,
+        help="執行指定的排程任務（如 daily-summary, morning-brief），搭配 --headless 使用",
+    )
+    _Parser.add_argument(
+        "--list-tasks",
+        action="store_true",
+        help="列出所有可用排程任務（JSON 格式，供選單 UI 解析）",
+    )
     _Args = _Parser.parse_args()
 
     from config import ConfigManager
 
     # ── 首次執行或強制 Setup ──────────────────────────────
     if _Args.setup or not ConfigManager.is_initialized():
-        _run_setup_wizard()
+        from cli.setup_commands import run_setup_wizard
+        run_setup_wizard()
         if _Args.setup:
             return
 
-    # ── 重新完整設定（保留資料庫，逐項引導） ──────────────
-    if _Args.reconfigure:
-        _run_full_reconfigure()
+    # ── 強制重建索引 ─────────────────────────
+    if _Args.reindex:
+        _run_reindex()
         return
 
-    # ── 單一區段設定 ──────────────────────────────────────
+    # ── 重新完整設定（保留資料庫，逐項引導） ────────────
+    if _Args.reconfigure:
+        from cli.setup_commands import run_full_reconfigure
+        run_full_reconfigure()
+        return
+
+    # ── 單一區段設定 ──────────────────────────
     if _Args.setup_section:
-        _dispatch_section( _Args.setup_section )
+        from cli.setup_commands import dispatch_section
+        dispatch_section( _Args.setup_section )
+        return
+
+    # ── 列出可用排程任務 ─────────────────────────────────
+    if _Args.list_tasks:
+        _list_available_tasks()
+        return
+
+    # ── 執行指定排程任務 ─────────────────────────────────
+    if _Args.task:
+        _start_scheduler_task( _Args.task, _Args.headless )
+        return
+
+    # ── 一次性排程（Windows 工作排程器觸發） ─────
+    if _Args.once:
+        _start_scheduler_once( _Args.daily_only, _Args.headless )
         return
 
     # ── 排程守護模式 ──────────────────────────────────────
@@ -121,13 +332,23 @@ def main():
 def _bootstrap( iConfig ):
     """
     初始化所有核心模組（Embeddings → VectorStore → VaultService）。
+    同時執行 migration check：偵測 embedding model / chunk 設定是否變更。
 
     Args:
         iConfig: 應用程式設定。
     """
     from core import embeddings as _EmbModule
     from core import vectorstore as _VsModule
+    from core.migration import MigrationManager
     from services.vault import VaultService
+
+    # ── 遷移偵測 ──────────────────────────────────────────
+    _NeedsReindex, _Changes = MigrationManager.check( iConfig )
+    if _NeedsReindex:
+        _Desc = MigrationManager.describe_changes( _Changes )
+        print( "\n⚠️  偵測到索引相關設定已變更：" )
+        print( _Desc )
+        print( "   請執行 --reindex 重建索引以確保搜尋結果正確。\n" )
 
     _EmbModule.initialize( iConfig.embedding.model )
     _VsModule.initialize(
@@ -138,397 +359,252 @@ def _bootstrap( iConfig ):
     VaultService.initialize( iConfig )
 
 
-def _run_setup_wizard():
-    """互動式初始化引導（首次或 --setup 強制）。"""
-    from config import AppConfig, UserConfig, LLMConfig, ENGINE_DIR
-    from services.setup import SetupService
-
-    print( "=" * 60 )
-    print( "  🚀 AI Memory Vault v3 — 初始化引導" )
-    print( "=" * 60 )
-
-    # Step 1: Vault 路徑
-    _DefaultVault = str( ENGINE_DIR.parent / "Vault" )
-    _VaultInput = input( f"\n📁 Vault 路徑 [{_DefaultVault}]: " ).strip()
-    _VaultPath = _VaultInput if _VaultInput else _DefaultVault
-    _VaultPath = os.path.realpath( _VaultPath )
-
-    # Step 2: 使用者資訊
-    _UserName = input( "👤 使用者名稱（用於 @author）: " ).strip()
-    _UserEmail = input( "📧 電子信箱（可留空）: " ).strip()
-
-    # Step 3: 所屬組織（可多個）
-    print( "\n🏢 所屬組織（輸入完畢按 Enter 跳過）：" )
-    _Orgs: list = []
-    while True:
-        _OrgInput = input( f"  組織名稱（已加入 {len( _Orgs )} 個，Enter 完成）: " ).strip()
-        if not _OrgInput:
-            break
-        _OrgLower = _OrgInput.lower()
-        _Invalid = set( _OrgLower ) - set( "abcdefghijklmnopqrstuvwxyz0123456789-_" )
-        if _Invalid:
-            print( f"  ❌ 名稱含無效字元：{''.join( sorted( _Invalid ) )}" )
-            continue
-        if _OrgLower in _Orgs:
-            print( f"  ℹ️  {_OrgLower} 已加入" )
-            continue
-        _Orgs.append( _OrgLower )
-        print( f"  ✅ 已加入：{_OrgLower}" )
-
-    # Step 4: LLM 設定
-    print( "\n🤖 LLM 供應商：" )
-    print( "  1. ollama（本地免費，需先安裝）" )
-    print( "  2. gemini（Google API，需 API Key）" )
-    _LlmChoice = input( "選擇 [1]: " ).strip()
-
-    _LlmProvider = "gemini" if _LlmChoice == "2" else "ollama"
-    _ApiKeyEnv = ""
-    if _LlmProvider == "gemini":
-        _ApiKeyEnv = "GOOGLE_API_KEY"
-        print( f"💡 請確認環境變數 {_ApiKeyEnv} 已設定。" )
-
-    # 組裝 Config
-    _Config = AppConfig(
-        vault_path=_VaultPath,
-        user=UserConfig(
-            name=_UserName,
-            email=_UserEmail,
-            organizations=_Orgs,
-        ),
-        llm=LLMConfig( provider=_LlmProvider, api_key_env=_ApiKeyEnv ),
-    )
-
-    # 執行初始化
-    SetupService.run_setup( _Config )
-
-    print( "\n✅ 設定完成！可以開始使用：" )
-    print( "   python main.py              → CLI 模式" )
-    print( "   python main.py --mode mcp   → MCP 模式" )
-    print( "   python main.py --mode api   → API 模式" )
+def _list_available_tasks():
+    """列出所有可用排程任務（JSON 格式輸出，供 vault-menu.ps1 解析）。"""
+    import json
+    from services.auto_scheduler import AutoScheduler
+    _Tasks = AutoScheduler.list_tasks()
+    print( json.dumps( _Tasks, ensure_ascii=False, indent=2 ) )
 
 
-# ── 重新完整設定 ──────────────────────────────────────────
-def _run_full_reconfigure():
-    """
-    依序引導所有設定區段（Vault → 使用者 → 組織 → LLM）。
-    不重建資料庫，僅更新 config.json。
-    """
-    print( "" )
-    print( "=" * 56 )
-    print( "  ⚠️  重新完整設定" )
-    print( "=" * 56 )
-    print( "  將依序引導您重新設定所有項目。" )
-    print( "  每個欄位按 Enter 可保持原值，資料庫不受影響。" )
-    print( "" )
-
-    _Confirm = input( "確定要重新設定？(y/Enter = 確定，n = 取消): " ).strip().lower()
-    if _Confirm == "n":
-        print( "  已取消。" )
-        return
-
-    _SECTION_ORDER = [
-        ( "1/4", "Vault 路徑",  _setup_vault_path ),
-        ( "2/4", "使用者資訊",  _setup_user_info ),
-        ( "3/4", "組織管理",    _run_org_wizard ),
-        ( "4/4", "LLM 設定",   _setup_llm ),
-    ]
-
-    for _Step, _Label, _Fn in _SECTION_ORDER:
-        print( "" )
-        print( f"  ── [{_Step}] {_Label} ──" )
-        _Fn()
-
-    print( "" )
-    print( "  ✅ 所有設定已完成！" )
-    print( "" )
-
-
-# ── 單一區段設定 ──────────────────────────────────────────
-def _dispatch_section( iSection: str ):
-    """
-    根據區段名稱分發至對應的設定函式。
-
-    Args:
-        iSection: vault / user / org / llm
-    """
-    _Map = {
-        "vault": _setup_vault_path,
-        "user":  _setup_user_info,
-        "org":   _run_org_wizard,
-        "llm":   _setup_llm,
-    }
-    _Fn = _Map.get( iSection )
-    if _Fn:
-        _Fn()
-
-
-def _setup_vault_path():
-    """互動式修改 Vault 路徑。"""
+def _start_scheduler_task( iTaskId: str, iHeadless: bool = False ):
+    """執行指定的排程任務，輸出結果後依 iHeadless 決定是否等待。"""
+    import logging
+    import os
+    from datetime import datetime as _DT
     from config import ConfigManager
+    from services.auto_scheduler import AutoScheduler
 
-    _Config = ConfigManager.load()
-    _Current = _Config.vault_path
+    # ── 設定 file logging ──────────────────────────────────────
+    _DataDir = os.path.join( os.environ.get( "APPDATA", "" ), "AI-Memory-Vault" )
+    os.makedirs( _DataDir, exist_ok=True )
+    _LogPath = os.path.join( _DataDir, "scheduler.log" )
 
-    print( "" )
-    print( "=" * 56 )
-    print( "  📁 Vault 路徑設定" )
-    print( "=" * 56 )
-    print( f"  目前：{_Current}" )
-    print( "" )
+    _Handler = logging.FileHandler( _LogPath, encoding="utf-8" )
+    _Handler.setFormatter( logging.Formatter(
+        "[%(asctime)s] [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    ) )
+    logging.root.addHandler( _Handler )
+    logging.root.setLevel( logging.INFO )
 
-    _Input = input( f"新路徑（Enter 保持不變）: " ).strip()
-    if not _Input:
-        print( "  保持不變。" )
-        return
-
-    _Config.vault_path = os.path.realpath( _Input )
-    ConfigManager.save( _Config )
-    print( f"  ✅ Vault 路徑已更新：{_Config.vault_path}" )
-    print( "" )
-
-
-def _setup_user_info():
-    """互動式修改使用者名稱與信箱。"""
-    from config import ConfigManager
-
-    _Config = ConfigManager.load()
+    _WeekDays  = [ "一", "二", "三", "四", "五", "六", "日" ]
+    _StartTime = _DT.now()
+    _TaskInfo  = AutoScheduler.TASK_REGISTRY.get( iTaskId, {} )
+    _TaskName  = _TaskInfo.get( "name", iTaskId )
+    _TaskDesc  = _TaskInfo.get( "description", "" )
 
     print( "" )
-    print( "=" * 56 )
-    print( "  👤 使用者資訊設定" )
-    print( "=" * 56 )
-    print( f"  目前名稱：{_Config.user.name or '（未設定）'}" )
-    print( f"  目前信箱：{_Config.user.email or '（未設定）'}" )
+    print( "=" * 52 )
+    print( "  AI Memory Vault - 排程任務執行報告" )
+    print( "=" * 52 )
+    print( f"  任務名稱：{_TaskName}" )
+    if _TaskDesc:
+        print( f"  任務說明：{_TaskDesc}" )
+    print( f"  執行日期：{_StartTime.strftime( '%Y-%m-%d' )}（星期{_WeekDays[_StartTime.weekday()]}）" )
+    print( f"  開始時間：{_StartTime.strftime( '%H:%M:%S' )}" )
     print( "" )
 
-    _Name = input( f"使用者名稱（Enter 保持不變）[{_Config.user.name}]: " ).strip()
-    if _Name:
-        _Config.user.name = _Name
+    _Config  = ConfigManager.load()
+    _Sched   = AutoScheduler( _Config )
+    _Results = _Sched.run_task( iTaskId )
 
-    _Email = input( f"電子信箱（Enter 保持不變）[{_Config.user.email}]: " ).strip()
-    if _Email:
-        _Config.user.email = _Email
+    _EndTime      = _DT.now()
+    _Elapsed      = ( _EndTime - _StartTime ).total_seconds()
+    _SuccessCount = sum( 1 for _R in _Results if _R[0].startswith( "✅" ) )
+    _FailCount    = sum( 1 for _R in _Results if _R[0].startswith( "❌" ) )
 
-    ConfigManager.save( _Config )
-    print( f"  ✅ 使用者資訊已儲存" )
+    print( "  ── 執行結果 ──────────────────────────────────" )
     print( "" )
-
-
-def _setup_llm():
-    """互動式修改 LLM 設定。"""
-    from config import ConfigManager
-
-    _Config = ConfigManager.load()
-
-    print( "" )
-    print( "=" * 56 )
-    print( "  🤖 LLM 設定" )
-    print( "=" * 56 )
-    print( f"  目前供應商：{_Config.llm.provider}" )
-    print( f"  目前模型  ：{_Config.llm.model or '（預設）'}" )
-    if _Config.llm.provider == "ollama":
-        print( f"  Ollama URL：{_Config.llm.ollama_base_url}" )
-    print( "" )
-
-    print( "  供應商選項：" )
-    print( "    1. ollama（本地免費）" )
-    print( "    2. gemini（Google API）" )
-    _Default = "1" if _Config.llm.provider == "ollama" else "2"
-    _Choice = input( f"  選擇（Enter 保持不變）[{_Default}]: " ).strip() or _Default
-
-    if _Choice == "2":
-        _Config.llm.provider = "gemini"
-        _Config.llm.api_key_env = _Config.llm.api_key_env or "GOOGLE_API_KEY"
-        print( f"  💡 請確認環境變數 {_Config.llm.api_key_env} 已設定。" )
+    if _Results:
+        for _Label, _Detail in _Results:
+            print( f"  {_Label}" )
+            print( f"    → {_Detail}" )
+            print( "" )
     else:
-        _Config.llm.provider = "ollama"
-        _UrlInput = input(
-            f"  Ollama URL（Enter 保持不變）[{_Config.llm.ollama_base_url}]: "
-        ).strip()
-        if _UrlInput:
-            _Config.llm.ollama_base_url = _UrlInput
+        print( "  [i] 無結果" )
+        print( "" )
 
-    _ModelInput = input(
-        f"  模型名稱（Enter 保持不變）[{_Config.llm.model or '留空=供應商預設'}]: "
-    ).strip()
-    if _ModelInput:
-        _Config.llm.model = _ModelInput
-
-    ConfigManager.save( _Config )
-    print( f"  ✅ LLM 設定已儲存" )
+    print( "  ── 執行統計 ──────────────────────────────────" )
+    print( f"  完成時間：{_EndTime.strftime( '%H:%M:%S' )}" )
+    print( f"  總耗時　：{_Elapsed:.1f} 秒" )
+    _Summary = f"{_SuccessCount} 項成功"
+    if _FailCount:
+        _Summary += f" / {_FailCount} 項失敗"
+    print( f"  執行結果：{_Summary}" )
     print( "" )
+    print( "=" * 52 )
+    print( "" )
+    if not iHeadless:
+        print( "按 Enter 鍵關閉視窗..." )
+        try:
+            input()
+        except (EOFError, KeyboardInterrupt):
+            pass
 
 
-def _run_org_wizard():
-    """
-    組織管理精靈。
-    - 顯示目前所有已加入的組織
-    - 操作選項：新增組織 / 移除組織
-    - 移除時可選擇是否同時刪除 Vault 目錄
-    """
-    import shutil
+def _start_scheduler_once( iDailyOnly: bool = False, iHeadless: bool = False ):
+    """執行一次所有適用於今日的排程任務，輸出結果後等待按鍵結束。（Windows 工作排程器用）"""
+    import logging
+    import os
+    from datetime import datetime as _DT
     from config import ConfigManager
+    from services.auto_scheduler import AutoScheduler
 
-    _Config     = ConfigManager.load()
-    _VaultRoot  = _Config.vault_path
-    _P          = _Config.paths
-    _WorkspacesAbs = os.path.join( _VaultRoot, _P.workspaces )
+    # ── 設定 file logging ──────────────────────────────────────
+    _DataDir = os.path.join( os.environ.get( "APPDATA", "" ), "AI-Memory-Vault" )
+    os.makedirs( _DataDir, exist_ok=True )
+    _LogPath = os.path.join( _DataDir, "scheduler.log" )
 
-    # ── 掃描 Vault 現有組織目錄（排除 _global 保留目錄） ──
-    def _scan_vault_orgs() -> list:
-        _Result = []
-        if os.path.isdir( _WorkspacesAbs ):
-            for _Name in sorted( os.listdir( _WorkspacesAbs ) ):
-                if not _Name.startswith( "_" ) and os.path.isdir(
-                    os.path.join( _WorkspacesAbs, _Name )
-                ):
-                    _Result.append( _Name )
-        return _Result
+    _Handler = logging.FileHandler( _LogPath, encoding="utf-8" )
+    _Handler.setFormatter( logging.Formatter(
+        "[%(asctime)s] [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    ) )
+    logging.root.addHandler( _Handler )
+    logging.root.setLevel( logging.INFO )
 
-    _CurrentOrgs: list = list( _Config.user.organizations )
+    _WeekDays  = [ "一", "二", "三", "四", "五", "六", "日" ]
+    _StartTime = _DT.now()
+    _WeekDay   = _WeekDays[_StartTime.weekday()]
 
-    while True:
-        print( "" )
-        print( "=" * 56 )
-        print( "  🏢 AI Memory Vault — 組織管理" )
-        print( "=" * 56 )
-        if _CurrentOrgs:
-            for _Org in _CurrentOrgs:
-                print( f"  • {_Org}" )
-        else:
-            print( "  ⚠️  尚未加入任何組織" )
-        print( "" )
-        print( "  1.  ＋ 新增組織" )
-        print( "  2.  － 移除組織" )
-        print( "" )
-
-        _Input = input( "選擇操作 [1-2]（Enter 離開）: " ).strip()
-
-        if not _Input:
-            break
-
-        # ── 新增組織 ──────────────────────────────────────
-        if _Input == "1":
-            _VaultOrgs   = _scan_vault_orgs()
-            _Unregistered = [ _O for _O in _VaultOrgs if _O not in _CurrentOrgs ]
-
-            print( "" )
-            print( "  --- 新增組織 ---" )
-
-            _AddOptions: list = list( _Unregistered )
-            _ADD_INPUT = "＋ 輸入新名稱"
-            _AddOptions.append( _ADD_INPUT )
-
-            for _Idx, _Opt in enumerate( _AddOptions, 1 ):
-                print( f"  {_Idx}.  {_Opt}" )
-
-            print( "" )
-            _Sel = input( f"選擇 [1-{len( _AddOptions )}]（Enter 取消）: " ).strip()
-            if not _Sel:
-                continue
-
-            if not _Sel.isdigit() or not ( 1 <= int( _Sel ) <= len( _AddOptions ) ):
-                print( "  ❌ 無效選項" )
-                continue
-
-            _NewOrg = _AddOptions[ int( _Sel ) - 1 ]
-
-            if _NewOrg == _ADD_INPUT:
-                _NewOrg = input( "  輸入名稱（英文小寫，例如 mycompany）: " ).strip().lower()
-                if not _NewOrg:
-                    continue
-                _Invalid = set( _NewOrg ) - set( "abcdefghijklmnopqrstuvwxyz0123456789-_" )
-                if _Invalid:
-                    print( f"  ❌ 名稱含無效字元：{''.join( sorted( _Invalid ) )}" )
-                    continue
-
-            if _NewOrg in _CurrentOrgs:
-                print( f"  ℹ️  {_NewOrg} 已在清單中" )
-                continue
-
-            _CurrentOrgs.append( _NewOrg )
-
-            # 立即建立目錄骨架
-            os.makedirs( os.path.join( _VaultRoot, _P.org_rules_dir( _NewOrg ) ),    exist_ok=True )
-            os.makedirs( os.path.join( _VaultRoot, _P.org_projects_dir( _NewOrg ) ), exist_ok=True )
-
-            print( f"  ✅ 已新增：{_NewOrg}" )
-
-        # ── 移除組織 ──────────────────────────────────────
-        elif _Input == "2":
-            if not _CurrentOrgs:
-                print( "  ℹ️  目前沒有可移除的組織" )
-                continue
-
-            print( "" )
-            print( "  --- 移除組織 ---" )
-            for _Idx, _Org in enumerate( _CurrentOrgs, 1 ):
-                print( f"  {_Idx}.  {_Org}" )
-
-            print( "" )
-            _Sel = input( f"選擇要移除的組織 [1-{len( _CurrentOrgs )}]（Enter 取消）: " ).strip()
-            if not _Sel:
-                continue
-
-            if not _Sel.isdigit() or not ( 1 <= int( _Sel ) <= len( _CurrentOrgs ) ):
-                print( "  ❌ 無效選項" )
-                continue
-
-            _Target = _CurrentOrgs[ int( _Sel ) - 1 ]
-
-            # 問是否同時刪除 Vault 目錄
-            _OrgDirAbs = os.path.join( _WorkspacesAbs, _Target )
-            _DirExists  = os.path.isdir( _OrgDirAbs )
-
-            print( "" )
-            if _DirExists:
-                print( f"  ⚠️  Vault 目錄：{_OrgDirAbs}" )
-                print( "  是否同時刪除目錄內的所有資料？" )
-                print( "  1.  僅從設定移除（保留 Vault 目錄）" )
-                print( "  2.  移除設定 + 刪除 Vault 目錄" )
-                print( "" )
-                _DelSel = input( "選擇 [1-2]（Enter 取消）: " ).strip()
-                if not _DelSel:
-                    continue
-                if _DelSel not in ( "1", "2" ):
-                    print( "  ❌ 無效選項" )
-                    continue
-                _DeleteDir = ( _DelSel == "2" )
-            else:
-                _DeleteDir = False
-
-            _CurrentOrgs.remove( _Target )
-
-            if _DeleteDir:
-                shutil.rmtree( _OrgDirAbs )
-                print( f"  ✅ 已移除：{_Target}（目錄已刪除）" )
-            else:
-                print( f"  ✅ 已移除：{_Target}（Vault 目錄保留）" )
-
-        else:
-            print( "  ❌ 無效選項" )
-
-    # ── 儲存設定 ──────────────────────────────────────────
-    _Config.user.organizations = _CurrentOrgs
-    ConfigManager.save( _Config )
+    # ── 預判今日會執行哪些任務 ────────────────────────────────
+    _PlannedTasks = [ "每日摘要" ]
+    if not iDailyOnly:
+        if _StartTime.weekday() == 0:
+            _PlannedTasks.extend( [ "每週摘要", "AI 週報分析" ] )
+        if _StartTime.day == 1:
+            _PlannedTasks.extend( [ "每月摘要", "AI 月報分析" ] )
+        if _StartTime.weekday() == 6:
+            _PlannedTasks.append( "向量同步" )
 
     print( "" )
-    if _CurrentOrgs:
-        print( f"  ✅ 組織設定已儲存：{', '.join( _CurrentOrgs )}" )
+    print( "=" * 52 )
+    print( "  AI Memory Vault - 排程執行報告" )
+    print( "=" * 52 )
+    print( f"  執行日期：{_StartTime.strftime( '%Y-%m-%d' )}（星期{_WeekDay}）" )
+    print( f"  開始時間：{_StartTime.strftime( '%H:%M:%S' )}" )
+    print( f"  預計任務：{'、'.join( _PlannedTasks )}" )
+    print( "" )
+
+    _Config  = ConfigManager.load()
+    _Sched   = AutoScheduler( _Config )
+    _Results = _Sched.run_once( daily_only=iDailyOnly )
+
+    _EndTime      = _DT.now()
+    _Elapsed      = ( _EndTime - _StartTime ).total_seconds()
+    _SuccessCount = sum( 1 for _R in _Results if _R[0].startswith( "✅" ) )
+    _FailCount    = sum( 1 for _R in _Results if _R[0].startswith( "❌" ) )
+
+    print( "  ── 執行結果 ──────────────────────────────────" )
+    print( "" )
+    if _Results:
+        for _Label, _Detail in _Results:
+            print( f"  {_Label}" )
+            print( f"    → {_Detail}" )
+            print( "" )
     else:
-        print( "  ⚠️  組織清單為空" )
+        print( "  [i] 今日無適用任務" )
+        print( "" )
+
+    print( "  ── 執行統計 ──────────────────────────────────" )
+    print( f"  完成時間：{_EndTime.strftime( '%H:%M:%S' )}" )
+    print( f"  總耗時　：{_Elapsed:.1f} 秒" )
+    _Summary = f"{_SuccessCount} 項成功"
+    if _FailCount:
+        _Summary += f" / {_FailCount} 項失敗"
+    print( f"  執行結果：{_Summary}" )
     print( "" )
+    print( "=" * 52 )
+    print( "" )
+    if not iHeadless:
+        print( "按 Enter 鍵關閉視窗..." )
+        try:
+            input()
+        except (EOFError, KeyboardInterrupt):
+            pass
 
 
 def _start_scheduler():
     """啟動 APScheduler 守護模式（非互動，阻塞直到 Ctrl+C）。"""
+    import logging
+    import os
     from config import ConfigManager
     from services.auto_scheduler import AutoScheduler
+
+    # ── 設定 file logging ──────────────────────────────────────
+    _DataDir = os.path.join( os.environ.get( "APPDATA", "" ), "AI-Memory-Vault" )
+    os.makedirs( _DataDir, exist_ok=True )
+    _LogPath = os.path.join( _DataDir, "scheduler.log" )
+
+    _Handler = logging.FileHandler( _LogPath, encoding="utf-8" )
+    _Handler.setFormatter( logging.Formatter(
+        "[%(asctime)s] [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    ) )
+    logging.root.addHandler( _Handler )
+    logging.root.setLevel( logging.INFO )
+
+    print( f"[Scheduler] Log 路徑：{_LogPath}" )
 
     _Config = ConfigManager.load()
     _Sched  = AutoScheduler( _Config )
     _Sched.start()
     _Sched.block()
+
+
+def _run_reindex():
+    """
+    清除現有向量索引並從零重建。
+    用於 embedding model / chunk 設定變更後同步索引。
+    """
+    from config import ConfigManager
+    from core.migration import MigrationManager
+    from core import embeddings as _EmbModule, vectorstore as _VsModule
+    from services.vault import VaultService
+
+    _Config = ConfigManager.load()
+
+    print( "" )
+    print( "=" * 60 )
+    print( "  🗑️  向量索引重建" )
+    print( "=" * 60 )
+    print( "  此操作將清除現有的 ChromaDB 向量索引，" )
+    print( "  並從 Vault 目錄完整重建。" )
+    print( "  Vault 筆記本身不受影響。" )
+    print( "" )
+
+    _Confirm = input( "確定要重建索引？(y/Enter = 確定，n = 取消): " ).strip().lower()
+    if _Confirm == "n":
+        print( "  已取消。" )
+        return
+
+    print( "\n  🗑️  清除索引中..." )
+    _Ok, _Msg = MigrationManager.reset_index( _Config )
+    if not _Ok:
+        print( f"  ❌ {_Msg}" )
+        return
+
+    print( f"  ✅ {_Msg}" )
+    print( "\n  🔄 初始化服務中..." )
+
+    _EmbModule.initialize( _Config.embedding.model )
+    _VsModule.initialize(
+        iChromaDir=_Config.database.get_chroma_path(),
+        iRecordDbUrl=_Config.database.get_record_db_url(),
+        iCollectionName=_Config.database.collection_name,
+    )
+    VaultService.initialize( _Config )
+
+    print( "  🔄 重建索引中（掃描所有 .md 檔案）..." )
+    _Stats = VaultService.sync()
+    _Idx = _Stats.get( "index_stats", {} )
+
+    print( "" )
+    print( f"  ✅ 重建完成！" )
+    print( f"     新增：{_Idx.get('num_added', 0)} chunks" )
+    print( f"     總數：{_Stats.get('total_chunks', 0)} chunks" )
+    print( "" )
 
 
 def _start_cli( iConfig, iMenu: bool = False ):
@@ -553,4 +629,26 @@ def _start_mcp():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as _E:
+        import traceback as _tb
+        _crash = _tb.format_exc()
+        # 寫入日誌（UTF-8，確保能記錄中文）
+        try:
+            _log = Path.home() / "vault-crash.log"
+            _log.write_text( _crash, encoding="utf-8" )
+        except Exception:
+            pass
+        # 嘗試在終端顯示
+        try:
+            sys.stderr.write( "\n=== CRASH ===\n" )
+            sys.stderr.write( _crash )
+            sys.stderr.flush()
+        except Exception:
+            pass
+        try:
+            input( "\nCrash log: ~/vault-crash.log  Press Enter to exit..." )
+        except Exception:
+            pass
+        sys.exit( 1 )

@@ -17,6 +17,11 @@ ENV/
 AI_Engine/chroma_db/
 AI_Engine/*.log
 AI_Engine/*.sql
+AI_Engine/*.bak
+AI_Engine/config.json
+AI_Engine/dist/
+AI_Engine/build/
+.pytest_cache/
 
 # IDE
 .vscode/*

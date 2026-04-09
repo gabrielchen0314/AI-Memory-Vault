@@ -179,7 +179,7 @@ class VaultRetriever:
 
         # ── 取出語料（依 filter 縮小範圍 or 全量）──────────
         if _Filter:
-            print( f"[過濾條件] {_Filter}" )
+            print( f"[過濾條件] {_Filter}", file=sys.stderr )
             _AllDocs = _Vectorstore.similarity_search( iQuery, k=500, filter=_Filter )
         else:
             _Raw = _Vectorstore._collection.get( include=["documents", "metadatas"] )

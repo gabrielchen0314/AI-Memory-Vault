@@ -9,8 +9,11 @@ Vault 索引器
 @date 2026.04.01
 """
 import re
-import sys
 from typing import Optional
+
+from core.logger import get_logger
+
+_logger = get_logger( __name__ )
 
 import yaml
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
@@ -73,7 +76,7 @@ class VaultIndexer:
         Returns:
             統計結果字典，包含 index_stats、category_summary、type_summary、total_chunks、total_files。
         """
-        print( "\n[系統執行中] 🔄 正在掃描變動的筆記...", file=sys.stderr )
+        _logger.info( "🔄 正在掃描變動的筆記..." )
 
         # 1. 載入所有 .md 檔案
         _Loader = DirectoryLoader(
@@ -89,7 +92,7 @@ class VaultIndexer:
             _Doc for _Doc in _RawDocs
             if not self._should_exclude( _Doc.metadata.get( "source", "" ) )
         ]
-        print( f"[掃描結果] 共 {len( _FilteredDocs )} 個檔案（已排除 {len( _RawDocs ) - len( _FilteredDocs )} 個）", file=sys.stderr )
+        _logger.info( "掃描結果：共 %d 個檔案（已排除 %d 個）", len( _FilteredDocs ), len( _RawDocs ) - len( _FilteredDocs ) )
 
         # 3. 逐一處理：解析 Frontmatter → 切塊 → 注入 Metadata
         _TaggedChunks: list = []

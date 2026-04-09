@@ -19,12 +19,12 @@ AI 對話分析：
 @date 2026.04.04
 """
 import os
+import re
 import sys
 from datetime import datetime, timedelta
 from typing import Optional
 
 from config import AppConfig
-from services.vault import VaultService
 
 
 class SchedulerService:
@@ -47,6 +47,20 @@ class SchedulerService:
         self.m_Config = iConfig
         self.m_VaultRoot = iConfig.vault_path
 
+    @staticmethod
+    def _validate_date( iDate: Optional[str] ) -> None:
+        """
+        驗證日期字串格式為 YYYY-MM-DD。
+
+        Args:
+            iDate: 日期字串（None 表示使用今天，不需驗證）。
+
+        Raises:
+            ValueError: 若格式不符。
+        """
+        if iDate is not None and not re.match( r'^\d{4}-\d{2}-\d{2}$', iDate ):
+            raise ValueError( f"無效的日期格式：'{iDate}'。請使用 YYYY-MM-DD。" )
+
     #region 公開方法 — 專案每日進度
     def generate_project_daily( self, iOrg: str, iProject: str, iDate: Optional[str] = None ) -> str:
         """
@@ -62,6 +76,7 @@ class SchedulerService:
         Returns:
             檔案的相對路徑（相對於 Vault 根目錄）。
         """
+        self._validate_date( iDate )
         _Date = iDate or datetime.now().strftime( "%Y-%m-%d" )
         _DailyDir = self.m_Config.paths.project_daily_dir( iOrg, iProject )
         _RelPath = f"{_DailyDir}/{_Date}.md"
@@ -73,6 +88,7 @@ class SchedulerService:
         # 嘗試從 status.md 讀取待辦事項
         _PendingTodos: list = []
         try:
+            from services.vault import VaultService
             _StatusData, _StatusErr = VaultService.get_project_status( iOrg, iProject )
             if not _StatusErr and _StatusData:
                 _PendingTodos = _StatusData.get( "pending_todos", [] )
@@ -121,6 +137,7 @@ class SchedulerService:
         Returns:
             文本實體的相對路徑（personal/reviews/daily/{date}.md）。
         """
+        self._validate_date( iDate )
         _Date = iDate or datetime.now().strftime( "%Y-%m-%d" )
         _P = self.m_Config.paths
 
@@ -165,6 +182,7 @@ class SchedulerService:
         Returns:
             文本實體的相對路徑。
         """
+        self._validate_date( iDate )
         _Now = datetime.strptime( iDate, "%Y-%m-%d" ) if iDate else datetime.now()
         _Year, _Week, _ = _Now.isocalendar()
         _FileName = f"{_Year}-W{_Week:02d}.md"
@@ -202,6 +220,7 @@ class SchedulerService:
         Returns:
             文本實體的相對路徑。
         """
+        self._validate_date( iDate )
         _Now = datetime.strptime( iDate, "%Y-%m-%d" ) if iDate else datetime.now()
         _YearMonth = _Now.strftime( "%Y-%m" )
         _FileName = f"{_YearMonth}.md"
@@ -228,24 +247,49 @@ class SchedulerService:
     #endregion
 
     #region 公開方法 — AI 對話記錄
-    def log_conversation( self, iOrg: str, iProject: str, iSessionName: str, iContent: str ) -> str:
+    def log_conversation(
+        self,
+        iOrg: str,
+        iProject: str,
+        iSessionName: str,
+        iContent: str,
+        iDetail: Optional[dict] = None,
+    ) -> str:
         """
         記錄一次 AI 對話至指定專案的 conversations 目錄。
+        若提供 iDetail，同時生成一份結構化詳細對話紀錄。
 
         Args:
             iOrg:         組織名稱（例如 'LIFEOFDEVELOPMENT'）。
             iProject:     專案名稱（例如 'ai-memory-vault'）。
             iSessionName: Session 名稱（例如 'vault-setup'）。
-            iContent:     對話原始內容。
+            iContent:     對話摘要內容（Markdown 格式）。
+            iDetail:      （選填）結構化詳細紀錄，可包含以下欄位：
+                          - topic (str):       對話主題
+                          - qa_pairs (list):   關鍵問答 [{"question", "analysis", "decision", "alternatives"}]
+                          - files_changed (list): 修改的檔案 [{"path", "action", "summary"}]
+                          - commands (list):   執行的命令 [{"command", "purpose", "result"}]
+                          - problems (list):   問題與解決 [{"problem", "cause", "solution"}]
+                          - learnings (list):  學到的知識 (str 列表)
+                          - decisions (list):  決策記錄 [{"decision", "options", "chosen", "reason"}]
 
         Returns:
-            檔案的相對路徑。
+            對話摘要檔案的相對路徑。若 iDetail 存在，詳細紀錄也一併寫入。
         """
         _Today = datetime.now().strftime( "%Y-%m-%d" )
         _ConvDir = self.m_Config.paths.project_conversations_dir( iOrg, iProject )
         _RelPath = f"{_ConvDir}/{_Today}_{iSessionName}.md"
 
         self._sync_write( _RelPath, iContent )
+
+        # 若提供結構化詳細紀錄，額外生成 detail 檔案
+        if iDetail and isinstance( iDetail, dict ):
+            _DetailRelPath = f"{_ConvDir}/{_Today}_{iSessionName}-detail.md"
+            _DetailContent = self._render_conversation_detail(
+                _Today, iOrg, iProject, iSessionName, iDetail
+            )
+            self._sync_write( _DetailRelPath, _DetailContent )
+
         return _RelPath
 
     def generate_ai_weekly_analysis( self, iDate: Optional[str] = None ) -> str:
@@ -260,6 +304,7 @@ class SchedulerService:
         Returns:
             檔案的相對路徑。
         """
+        self._validate_date( iDate )
         _Now = datetime.strptime( iDate, "%Y-%m-%d" ) if iDate else datetime.now()
         _Year, _Week, _ = _Now.isocalendar()
         _FileName = f"{_Year}-W{_Week:02d}.md"
@@ -299,6 +344,7 @@ class SchedulerService:
         Returns:
             檔案的相對路徑。
         """
+        self._validate_date( iDate )
         _Now = datetime.strptime( iDate, "%Y-%m-%d" ) if iDate else datetime.now()
         _YearMonth = _Now.strftime( "%Y-%m" )
         _FileName = f"{_YearMonth}.md"
@@ -901,6 +947,110 @@ month: {iYearMonth}
 """
     #endregion
 
+    #region 私有方法 — 對話詳細紀錄渲染
+    @staticmethod
+    def _render_conversation_detail(
+        iDate: str, iOrg: str, iProject: str, iSession: str, iDetail: dict
+    ) -> str:
+        """渲染結構化對話詳細紀錄。"""
+        _Topic = iDetail.get( "topic", iSession )
+
+        _Lines = [
+            "---",
+            "type: conversation-detail",
+            f"date: {iDate}",
+            f"session: {iSession}",
+            f"project: {iProject}",
+            f"org: {iOrg}",
+            "tags: [conversation, detail]",
+            "---",
+            "",
+            f"# {iDate} {iSession} — 詳細對話紀錄",
+            "",
+            "## 對話概要",
+            f"- **主題**：{_Topic}",
+            "",
+        ]
+
+        # 關鍵問答
+        _QaPairs = iDetail.get( "qa_pairs", [] )
+        if _QaPairs:
+            _Lines.append( "## 關鍵問答紀錄" )
+            _Lines.append( "" )
+            for _I, _Qa in enumerate( _QaPairs, 1 ):
+                _Lines.append( f"### Q{_I}: {_Qa.get( 'question', '' )}" )
+                if _Qa.get( "analysis" ):
+                    _Lines.append( f"- **AI 分析**：{_Qa['analysis']}" )
+                if _Qa.get( "decision" ):
+                    _Lines.append( f"- **決策**：{_Qa['decision']}" )
+                if _Qa.get( "alternatives" ):
+                    _Lines.append( f"- **替代方案**：{_Qa['alternatives']}" )
+                _Lines.append( "" )
+
+        # 修改的檔案
+        _Files = iDetail.get( "files_changed", [] )
+        if _Files:
+            _Lines.append( "## 修改的檔案清單" )
+            _Lines.append( "" )
+            _Lines.append( "| 檔案 | 操作 | 摘要 |" )
+            _Lines.append( "|------|------|------|" )
+            for _F in _Files:
+                _Lines.append(
+                    f"| `{_F.get( 'path', '' )}` | {_F.get( 'action', '' )} | {_F.get( 'summary', '' )} |"
+                )
+            _Lines.append( "" )
+
+        # 執行的命令
+        _Cmds = iDetail.get( "commands", [] )
+        if _Cmds:
+            _Lines.append( "## 執行的命令" )
+            _Lines.append( "" )
+            _Lines.append( "| 命令 | 目的 | 結果 |" )
+            _Lines.append( "|------|------|------|" )
+            for _C in _Cmds:
+                _Lines.append(
+                    f"| `{_C.get( 'command', '' )}` | {_C.get( 'purpose', '' )} | {_C.get( 'result', '' )} |"
+                )
+            _Lines.append( "" )
+
+        # 問題與解決
+        _Problems = iDetail.get( "problems", [] )
+        if _Problems:
+            _Lines.append( "## 遇到的問題與解決" )
+            _Lines.append( "" )
+            _Lines.append( "| 問題 | 原因 | 解決方式 |" )
+            _Lines.append( "|------|------|---------|" )
+            for _Prob in _Problems:
+                _Lines.append(
+                    f"| {_Prob.get( 'problem', '' )} | {_Prob.get( 'cause', '' )} | {_Prob.get( 'solution', '' )} |"
+                )
+            _Lines.append( "" )
+
+        # 學到的知識
+        _Learnings = iDetail.get( "learnings", [] )
+        if _Learnings:
+            _Lines.append( "## 學到的知識" )
+            _Lines.append( "" )
+            for _L in _Learnings:
+                _Lines.append( f"- {_L}" )
+            _Lines.append( "" )
+
+        # 決策記錄
+        _Decisions = iDetail.get( "decisions", [] )
+        if _Decisions:
+            _Lines.append( "## 決策記錄" )
+            _Lines.append( "" )
+            _Lines.append( "| 決策 | 選項 | 最終選擇 | 理由 |" )
+            _Lines.append( "|------|------|---------|------|" )
+            for _D in _Decisions:
+                _Lines.append(
+                    f"| {_D.get( 'decision', '' )} | {_D.get( 'options', '' )} | {_D.get( 'chosen', '' )} | {_D.get( 'reason', '' )} |"
+                )
+            _Lines.append( "" )
+
+        return "\n".join( _Lines )
+    #endregion
+
     #region 私有方法 — 檔案操作
     @staticmethod
     def _sync_write( iRelPath: str, iContent: str ) -> None:
@@ -911,6 +1061,7 @@ month: {iYearMonth}
             iRelPath: 相對於 Vault 根目錄的路徑。
             iContent: 檔案內容。
         """
+        from services.vault import VaultService
         _Stats, _Error = VaultService.write_note( iRelPath, iContent )
         if _Error:
             print( f"[SchedulerService] Write error ({iRelPath}): {_Error}", file=sys.stderr )

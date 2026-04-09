@@ -1,45 +1,61 @@
 """
-Vault 業務邏輯層
+Vault 業務邏輯層（Facade）
 三個模式（CLI / API / MCP）的唯一業務邏輯入口。
 統一路徑驗證、.md 檢查、讀寫、搜尋、同步、寫入後自動索引。
 
-V3 變更：
-  - 不再使用 classmethod + 全域 VAULT_ROOT，改為 initialize() 注入 AppConfig。
-  - 內部持有 Indexer / Retriever 實例（非每次呼叫重建）。
+V3.5 變更：
+  - 新增 threading.Lock 保護 initialize / _ensure_initialized（C-3 修復）。
+  - 統一使用 core.logger（取代 print / 硬編碼錯誤字串）。
+  - 新增 grep / edit_note / add_todo / remove_todo 方法（Phase 5 功能）。
+
+V3.6 變更：
+  - 從 God Object（982 行）重構為 Facade + 內部委派。
+  - 實作拆分至 services/_vault/（note_ops, search_ops, index_ops）。
+  - 本檔僅保留共用基礎設施 + 公開方法委派（~200 行）。
+  - 外部呼叫者零修改：from services.vault import VaultService 繼續有效。
 
 @author gabrielchen
-@version 3.0
+@version 3.6
 @since AI-Memory-Vault 3.0
-@date 2026.04.01
+@date 2026.04.10
 """
+from __future__ import annotations
+
 import os
+import threading
 from typing import Optional
 
 from config import AppConfig
-from core.indexer import VaultIndexer
-from core.retriever import VaultRetriever
+from core.logger import get_logger
+from core.errors import (
+    VaultError, PathTraversalError, FileNotFoundError_,
+    ExtensionError, NotInitializedError, NoteAlreadyExistsError,
+    EditMatchError,
+)
+
+_logger = get_logger( __name__ )
 
 
 class VaultService:
-    """Vault 業務邏輯：所有對外操作的統一入口。"""
+    """Vault 業務邏輯：所有對外操作的統一入口（Facade）。"""
 
     #region 常數定義
     ALLOWED_EXTENSION: str = ".md"
     ERROR_PATH_TRAVERSAL: str = "Error: path traversal not allowed."
-    ERROR_NOT_FOUND: str = "Error: file not found — {file_path}"
     ERROR_EXTENSION: str = "Error: only .md files are allowed."
-    ERROR_NOT_INITIALIZED: str = "Error: VaultService not initialized. Call initialize() first."
     #endregion
 
     #region 類別級狀態（由 initialize 設定）
+    ## <summary>執行緒鎖（保護 initialize / _ensure_initialized）</summary>
+    _lock: threading.Lock = threading.Lock()
     ## <summary>Vault 根目錄絕對路徑</summary>
     m_VaultRoot: str = ""
     ## <summary>應用程式設定</summary>
     m_Config: Optional[AppConfig] = None
     ## <summary>文件索引器</summary>
-    m_Indexer: Optional[VaultIndexer] = None
+    m_Indexer = None
     ## <summary>文件檢索器</summary>
-    m_Retriever: Optional[VaultRetriever] = None
+    m_Retriever = None
     ## <summary>是否已初始化</summary>
     m_IsInitialized: bool = False
     #endregion
@@ -48,28 +64,33 @@ class VaultService:
     @classmethod
     def initialize( cls, iConfig: AppConfig ) -> None:
         """
-        注入設定，初始化內部依賴。
+        注入設定，初始化內部依賴。執行緒安全。
 
         Args:
             iConfig: 應用程式頂層設定。
         """
-        cls.m_VaultRoot = os.path.realpath( iConfig.vault_path )
-        cls.m_Config = iConfig
-        cls.m_Indexer = VaultIndexer(
-            cls.m_VaultRoot,
-            iConfig.embedding.chunk_size,
-            iConfig.embedding.chunk_overlap,
-        )
-        cls.m_Retriever = VaultRetriever( iConfig )
-        cls.m_IsInitialized = True
+        with cls._lock:
+            from core.indexer import VaultIndexer
+            from core.retriever import VaultRetriever
+
+            cls.m_VaultRoot = os.path.realpath( iConfig.vault_path )
+            cls.m_Config = iConfig
+            cls.m_Indexer = VaultIndexer(
+                cls.m_VaultRoot,
+                iConfig.embedding.chunk_size,
+                iConfig.embedding.chunk_overlap,
+            )
+            cls.m_Retriever = VaultRetriever( iConfig )
+            cls.m_IsInitialized = True
+            _logger.info( "VaultService initialized — vault=%s", cls.m_VaultRoot )
     #endregion
 
-    #region 私有方法
+    #region 共用基礎設施（子模組透過 cls 存取）
     @classmethod
     def _ensure_initialized( cls ) -> None:
-        """確認服務已初始化。"""
+        """確認服務已初始化（執行緒安全）。"""
         if not cls.m_IsInitialized:
-            raise RuntimeError( cls.ERROR_NOT_INITIALIZED )
+            raise NotInitializedError( "VaultService" )
 
     @classmethod
     def _validate_path( cls, iFilePath: str ) -> tuple:
@@ -83,9 +104,9 @@ class VaultService:
             (abs_path, error_message) — 成功時 error_message 為 None。
         """
         _AbsPath = os.path.realpath( os.path.join( cls.m_VaultRoot, iFilePath ) )
-
-        if not _AbsPath.startswith( cls.m_VaultRoot ):
-            return None, cls.ERROR_PATH_TRAVERSAL
+        _VaultPrefix = cls.m_VaultRoot.rstrip( os.sep ) + os.sep
+        if not ( _AbsPath + os.sep ).startswith( _VaultPrefix ):
+            return None, "Error: path traversal not allowed."
 
         return _AbsPath, None
 
@@ -105,7 +126,7 @@ class VaultService:
             return None, _Error
 
         if not _AbsPath.endswith( cls.ALLOWED_EXTENSION ):
-            return None, cls.ERROR_EXTENSION
+            return None, "Error: only .md files are allowed."
 
         return _AbsPath, None
 
@@ -149,201 +170,73 @@ class VaultService:
         return True
     #endregion
 
-    #region 公開方法
+    #region 公開方法（Facade — 委派至 services/_vault/ 子模組）
+
+    # ── 筆記 CRUD ──────────────────────────────────────────
+
     @classmethod
     def read_note( cls, iFilePath: str ) -> tuple:
-        """
-        讀取 Vault 中指定筆記的完整原始內容。
-
-        Args:
-            iFilePath: 相對於 Vault 根目錄的檔案路徑。
-
-        Returns:
-            (content, error_message) — 成功時 error_message 為 None。
-        """
-        cls._ensure_initialized()
-        _AbsPath, _Error = cls._validate_path( iFilePath )
-        if _Error:
-            return None, _Error
-
-        if not os.path.isfile( _AbsPath ):
-            return None, cls.ERROR_NOT_FOUND.format( file_path=iFilePath )
-
-        with open( _AbsPath, "r", encoding="utf-8" ) as _F:
-            return _F.read(), None
+        """讀取 Vault 中指定筆記的完整原始內容。"""
+        from services._vault.note_ops import read_note
+        return read_note( cls, iFilePath )
 
     @classmethod
     def write_note( cls, iFilePath: str, iContent: str, iMode: str = "overwrite" ) -> tuple:
-        """
-        寫入或更新 Vault 中的筆記檔案，並自動索引至向量庫。
-
-        Args:
-            iFilePath: 相對於 Vault 根目錄的檔案路徑。
-            iContent:  要寫入的內容。
-            iMode:     寫入模式。'overwrite' = 覆寫；'append' = 追加。
-
-        Returns:
-            (stats_dict, error_message) — 成功時 error_message 為 None。
-        """
-        cls._ensure_initialized()
-        _AbsPath, _Error = cls._validate_write_path( iFilePath )
-        if _Error:
-            return None, _Error
-
-        # 自動偵測並建立專案骨架
-        _IsNewProject = cls._ensure_project_skeleton( iFilePath )
-
-        _Dir = os.path.dirname( _AbsPath )
-        if not os.path.exists( _Dir ):
-            os.makedirs( _Dir, exist_ok=True )
-
-        _WriteMode = "a" if iMode == "append" else "w"
-        _WriteContent = ( "\n" + iContent ) if iMode == "append" else iContent
-        with open( _AbsPath, _WriteMode, encoding="utf-8" ) as _F:
-            _F.write( _WriteContent )
-
-        # 寫入後自動索引（單檔增量）
-        _Stats = cls.m_Indexer.sync_single( _AbsPath )
-
-        # Git 自動提交（若已啟用）
-        if cls.m_Config and cls.m_Config.git.auto_commit:
-            from services.git_service import GitService
-            _Gc = cls.m_Config.git
-            GitService.commit(
-                cls.m_VaultRoot, iFilePath,
-                f"write: {iFilePath}",
-                _Gc.author_name, _Gc.author_email,
-            )
-
-        return {
-            "file_path": iFilePath,
-            "chars": len( iContent ),
-            "mode": iMode,
-            "new_project": _IsNewProject,
-            "index_stats": _Stats["index_stats"],
-            "total_chunks": _Stats["total_chunks"],
-        }, None
+        """寫入或更新 Vault 中的筆記檔案，並自動索引至向量庫。"""
+        from services._vault.note_ops import write_note
+        return write_note( cls, iFilePath, iContent, iMode )
 
     @classmethod
     def batch_write_notes( cls, iNotes: list ) -> tuple:
-        """
-        批次寫入多個筆記，統一執行一次 ChromaDB 索引（比逐一 write_note 效率高）。
+        """批次寫入多個筆記，統一執行一次 ChromaDB 索引。"""
+        from services._vault.note_ops import batch_write_notes
+        return batch_write_notes( cls, iNotes )
 
-        Args:
-            iNotes: list[dict]，每個 dict 含 'file_path': str 和 'content': str。
-                    可選 'mode': 'overwrite'（預設）或 'append'。
+    @classmethod
+    def edit_note( cls, iFilePath: str, iOldText: str, iNewText: str ) -> tuple:
+        """在指定 .md 檔案中執行精確的文字替換（不全文覆寫）。"""
+        from services._vault.note_ops import edit_note
+        return edit_note( cls, iFilePath, iOldText, iNewText )
 
-        Returns:
-            (results, batch_stats, error_message)
-            results:     list[dict] 每筆寫入結果（含 file_path / chars / ok / error）。
-            batch_stats: 合併的索引統計。
-            error_message: 僅在整體失敗時非 None（個別失敗記錄在 results[i]['error']）。
-        """
-        cls._ensure_initialized()
+    @classmethod
+    def delete_note( cls, iFilePath: str ) -> tuple:
+        """刪除 Vault 中的指定 .md 檔案，並移除 ChromaDB 中對應的向量記錄。"""
+        from services._vault.note_ops import delete_note
+        return delete_note( cls, iFilePath )
 
-        _Results = []
-        _AbsPathsToIndex = []
+    @classmethod
+    def rename_note( cls, iOldPath: str, iNewPath: str ) -> tuple:
+        """將 Vault 中的 .md 檔案移動到新路徑，同步更新 ChromaDB 索引。"""
+        from services._vault.note_ops import rename_note
+        return rename_note( cls, iOldPath, iNewPath )
 
-        for _Note in iNotes:
-            _FilePath = _Note.get( "file_path", "" )
-            _Content = _Note.get( "content", "" )
-            _Mode = _Note.get( "mode", "overwrite" )
+    @classmethod
+    def list_notes( cls, iPath: str = "", iRecursive: bool = False ) -> tuple:
+        """列出指定目錄下的所有 .md 檔案。"""
+        from services._vault.note_ops import list_notes
+        return list_notes( cls, iPath, iRecursive )
 
-            _AbsPath, _PathErr = cls._validate_write_path( _FilePath )
-            if _PathErr:
-                _Results.append( { "file_path": _FilePath, "ok": False, "error": _PathErr, "chars": 0 } )
-                continue
-
-            cls._ensure_project_skeleton( _FilePath )
-
-            _Dir = os.path.dirname( _AbsPath )
-            if _Dir:
-                os.makedirs( _Dir, exist_ok=True )
-
-            _WriteMode = "a" if _Mode == "append" else "w"
-            _WriteContent = ( "\n" + _Content ) if _Mode == "append" else _Content
-            with open( _AbsPath, _WriteMode, encoding="utf-8" ) as _F:
-                _F.write( _WriteContent )
-
-            _AbsPathsToIndex.append( _AbsPath )
-            _Results.append( { "file_path": _FilePath, "ok": True, "error": None, "chars": len( _Content ) } )
-
-        # 一次批次索引所有成功寫入的檔案
-        _BatchStats = cls.m_Indexer.sync_batch( _AbsPathsToIndex )
-
-        # Git 自動提交（批次加入後一次 commit）
-        if cls.m_Config and cls.m_Config.git.auto_commit and _AbsPathsToIndex:
-            from services.git_service import GitService
-            _Gc = cls.m_Config.git
-            _Paths = " ".join(
-                os.path.relpath( p, cls.m_VaultRoot ).replace( "\\", "/" )
-                for p in _AbsPathsToIndex
-            )
-            _Msg = f"batch-write: {len(_AbsPathsToIndex)} files"
-            GitService.commit(
-                cls.m_VaultRoot, ".",
-                _Msg,
-                _Gc.author_name, _Gc.author_email,
-            )
-
-        return _Results, _BatchStats, None
+    # ── Todo ───────────────────────────────────────────────
 
     @classmethod
     def update_todo( cls, iFilePath: str, iTodoText: str, iDone: bool ) -> tuple:
-        """
-        在指定 .md 檔案中更新 todo 項目的勾選狀態（不全文覆蓋）。
+        """在指定 .md 檔案中更新 todo 項目的勾選狀態。"""
+        from services._vault.note_ops import update_todo
+        return update_todo( cls, iFilePath, iTodoText, iDone )
 
-        搜尋包含 iTodoText 的 todo 行（`- [ ] ...` 或 `- [x] ...`），
-        將其勾選狀態切換至 iDone 指定的值，並重新索引。
+    @classmethod
+    def add_todo( cls, iFilePath: str, iTodoText: str, iSection: str = "" ) -> tuple:
+        """在指定 .md 檔案中新增一個 todo 項目。"""
+        from services._vault.note_ops import add_todo
+        return add_todo( cls, iFilePath, iTodoText, iSection )
 
-        Args:
-            iFilePath: 相對於 Vault 根目錄的 .md 檔案路徑。
-            iTodoText: todo 項目文字（部分比對即可）。
-            iDone:     True = 標為完成 [x]，False = 標為未完成 [ ]。
+    @classmethod
+    def remove_todo( cls, iFilePath: str, iTodoText: str ) -> tuple:
+        """從指定 .md 檔案中移除包含指定文字的 todo 行。"""
+        from services._vault.note_ops import remove_todo
+        return remove_todo( cls, iFilePath, iTodoText )
 
-        Returns:
-            (stats_dict, error_message) — 成功時 error_message 為 None。
-            stats_dict 含 'matched' (bool) 和 'updated_line'。
-        """
-        cls._ensure_initialized()
-
-        _AbsPath, _PathErr = cls._validate_path( iFilePath )
-        if _PathErr:
-            return None, _PathErr
-
-        if not os.path.isfile( _AbsPath ):
-            return None, cls.ERROR_NOT_FOUND.format( file_path=iFilePath )
-
-        with open( _AbsPath, "r", encoding="utf-8" ) as _F:
-            _Lines = _F.readlines()
-
-        _Matched = False
-        _UpdatedLine = ""
-        _NewState = "[x]" if iDone else "[ ]"
-        _OldState = "[ ]" if iDone else "[x]"
-
-        for _Idx, _Line in enumerate( _Lines ):
-            # 比對包含 todo 關鍵字的 checkbox 行
-            if iTodoText in _Line and ( "- [ ]" in _Line or "- [x]" in _Line ):
-                _Lines[_Idx] = _Line.replace( f"- {_OldState}", f"- {_NewState}", 1 )
-                _UpdatedLine = _Lines[_Idx].rstrip()
-                _Matched = True
-                break
-
-        if not _Matched:
-            return { "matched": False, "updated_line": "" }, None
-
-        with open( _AbsPath, "w", encoding="utf-8" ) as _F:
-            _F.writelines( _Lines )
-
-        _IndexStats = cls.m_Indexer.sync_single( _AbsPath )
-
-        return {
-            "matched": True,
-            "updated_line": _UpdatedLine,
-            "index_stats": _IndexStats["index_stats"],
-            "total_chunks": _IndexStats["total_chunks"],
-        }, None
+    # ── 搜尋 ──────────────────────────────────────────────
 
     @classmethod
     def search(
@@ -354,21 +247,9 @@ class VaultService:
         iTopK: Optional[int] = None,
         iMode: str = "",
     ) -> list:
-        """
-        執行語意搜尋。
-
-        Args:
-            iQuery:    搜尋文字。
-            iCategory: 過濾分類。
-            iDocType:  過濾文件類型。
-            iTopK:     回傳筆數。
-            iMode:     搜尋模式（"keyword" / "semantic" / ""）。
-
-        Returns:
-            搜尋結果列表。
-        """
-        cls._ensure_initialized()
-        return cls.m_Retriever.search( iQuery, iCategory, iDocType, iTopK, iMode )
+        """執行語意搜尋。"""
+        from services._vault.search_ops import search
+        return search( cls, iQuery, iCategory, iDocType, iTopK, iMode )
 
     @classmethod
     def search_formatted(
@@ -378,174 +259,40 @@ class VaultService:
         iDocType: str = "",
         iMode: str = "",
     ) -> str:
-        """
-        執行語意搜尋，回傳格式化文字。
+        """執行語意搜尋，回傳格式化文字。"""
+        from services._vault.search_ops import search_formatted
+        return search_formatted( cls, iQuery, iCategory, iDocType, iMode )
 
-        Args:
-            iQuery:    搜尋文字。
-            iCategory: 過濾分類。
-            iDocType:  過濾文件類型。
-            iMode:     搜尋模式（"keyword" / "semantic" / ""）。
+    @classmethod
+    def grep( cls, iPattern: str, iPath: str = "", iIsRegex: bool = False, iMaxResults: int = 50 ) -> tuple:
+        """在 Vault .md 檔案中執行純文字或正規表達式搜尋。"""
+        from services._vault.search_ops import grep
+        return grep( cls, iPattern, iPath, iIsRegex, iMaxResults )
 
-        Returns:
-            格式化搜尋結果字串。
-        """
-        cls._ensure_initialized()
-        return cls.m_Retriever.search_formatted( iQuery, iCategory, iDocType, iMode )
+    # ── 索引管理 ──────────────────────────────────────────
 
     @classmethod
     def sync( cls ) -> dict:
-        """
-        執行全量增量同步。
-
-        Returns:
-            統計結果字典。
-        """
-        cls._ensure_initialized()
-        return cls.m_Indexer.sync()
-    @classmethod
-    def delete_note( cls, iFilePath: str ) -> tuple:
-        """
-        刪除 Vault 中的指定 .md 檔案，並移除 ChromaDB 中對應的所有向量記錄。
-
-        Args:
-            iFilePath: 相對於 Vault 根目錄的 .md 檔案路徑。
-
-        Returns:
-            (stats_dict, error_message) — 成功時 error_message 為 None。
-            stats_dict 含 'file_path' 和 'deleted_chunks'。
-        """
-        cls._ensure_initialized()
-
-        _AbsPath, _Error = cls._validate_write_path( iFilePath )
-        if _Error:
-            return None, _Error
-
-        if not os.path.isfile( _AbsPath ):
-            return None, cls.ERROR_NOT_FOUND.format( file_path=iFilePath )
-
-        os.remove( _AbsPath )
-
-        _Stats = cls.m_Indexer.delete_source( _AbsPath )
-
-        # Git 自動提交（刪除後）
-        if cls.m_Config and cls.m_Config.git.auto_commit:
-            from services.git_service import GitService
-            _Gc = cls.m_Config.git
-            GitService.commit(
-                cls.m_VaultRoot, iFilePath,
-                f"delete: {iFilePath}",
-                _Gc.author_name, _Gc.author_email,
-            )
-
-        return {
-            "file_path": iFilePath,
-            "deleted_chunks": _Stats["index_stats"]["num_deleted"],
-        }, None
+        """執行全量增量同步。"""
+        from services._vault.index_ops import sync
+        return sync( cls )
 
     @classmethod
     def check_integrity( cls ) -> tuple:
-        """
-        比對 ChromaDB 已索引的 source 路徑與 Vault 檔案系統，
-        找出孤立記錄（DB 中存在但對應 .md 檔案已刪除）。
+        """比對 ChromaDB 與 Vault 檔案系統，找出孤立記錄。"""
+        from services._vault.index_ops import check_integrity
+        return check_integrity( cls )
 
-        Returns:
-            ({orphaned, total_db_sources, total_files}, error)
-        """
-        cls._ensure_initialized()
-        try:
-            from core.vectorstore import get_vectorstore
-
-            _Vs = get_vectorstore()
-            _All = _Vs.get( include=["metadatas"] )
-            _DbSources = {
-                _M.get( "source" )
-                for _M in _All["metadatas"]
-                if _M.get( "source" )
-            }
-
-            _Orphaned = sorted( _S for _S in _DbSources if not os.path.isfile( _S ) )
-
-            _FileCount = sum(
-                len( [_F for _F in _Files if _F.endswith( ".md" )] )
-                for _, _, _Files in os.walk( cls.m_VaultRoot )
-            )
-
-            return (
-                {
-                    "orphaned": _Orphaned,
-                    "total_db_sources": len( _DbSources ),
-                    "total_files": _FileCount,
-                },
-                None,
-            )
-        except Exception as _Ex:
-            return ( None, str( _Ex ) )
+    @classmethod
+    def clean_orphans( cls ) -> tuple:
+        """移除 ChromaDB 中所有孤立向量記錄。"""
+        from services._vault.index_ops import clean_orphans
+        return clean_orphans( cls )
 
     @classmethod
     def get_project_status( cls, iOrg: str, iProject: str ) -> tuple:
-        """
-        讀取指定專案的 status.md 並回傳結構化資料。
+        """讀取指定專案的 status.md 並回傳結構化資料。"""
+        from services._vault.index_ops import get_project_status
+        return get_project_status( cls, iOrg, iProject )
 
-        Args:
-            iOrg:     組織名稱。
-            iProject: 專案名稱。
-
-        Returns:
-            ({last_updated, pending_todos, completed_todos, context_lines, path}, error)
-        """
-        cls._ensure_initialized()
-
-        _RelPath = cls.m_Config.paths.project_status_file( iOrg, iProject )
-        _Content, _Err = cls.read_note( _RelPath )
-        if _Err:
-            return ( None, _Err )
-        if not _Content:
-            return ( None, cls.ERROR_NOT_FOUND.format( file_path=_RelPath ) )
-
-        # 解析 YAML frontmatter
-        _LastUpdated = ""
-        _Lines = _Content.splitlines()
-        if _Lines and _Lines[0].strip() == "---":
-            _End = next( ( _I for _I, _L in enumerate( _Lines[1:], 1 ) if _L.strip() == "---" ), -1 )
-            if _End > 0:
-                for _L in _Lines[1:_End]:
-                    if _L.startswith( "last_updated:" ):
-                        _LastUpdated = _L.split( ":", 1 )[1].strip()
-
-        # 萃取 todo 行
-        _Pending   = []
-        _Completed = []
-        for _L in _Lines:
-            _Stripped = _L.strip()
-            if _Stripped.startswith( "- [ ]" ):
-                _Pending.append( _Stripped[6:].strip() )
-            elif _Stripped.startswith( "- [x]" ) or _Stripped.startswith( "- [X]" ):
-                _Completed.append( _Stripped[6:].strip() )
-
-        # 萃取工作脈絡第一段（## 工作脈絡 區塊前 10 行）
-        _ContextLines = []
-        _InContext = False
-        for _L in _Lines:
-            if _L.startswith( "## 工作脈絡" ):
-                _InContext = True
-                continue
-            if _InContext:
-                if _L.startswith( "## " ):
-                    break
-                _ContextLines.append( _L )
-                if len( _ContextLines ) >= 15:
-                    break
-        _ContextSummary = "\n".join( _ContextLines ).strip()
-
-        return (
-            {
-                "last_updated": _LastUpdated,
-                "pending_todos": _Pending,
-                "completed_count": len( _Completed ),
-                "context_summary": _ContextSummary,
-                "path": _RelPath,
-            },
-            None,
-        )
     #endregion

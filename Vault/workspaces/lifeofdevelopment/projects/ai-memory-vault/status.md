@@ -1,78 +1,58 @@
 ---
-type: status
+type: project-status
 project: ai-memory-vault
 org: LIFEOFDEVELOPMENT
-last_updated: 2026.04.04
+last_updated: 2026.04.10
 ---
 
-# ai-memory-vault 專案狀態
-
-## 待辦事項
-
-- [x] Scheduler Weekly/monthly 自動觸發（APScheduler，週一/月初自動生成）
-- [x] Daily note AI 彙整（自動從 `conversations/` 摘要生成每日進度）
-- [x] Embedding 策略評估（chunk_size=500 / overlap=50 可調校）
-- [x] 混合搜尋比重優化（keyword/semantic/balanced 三模式實作完成）
-- [x] `generate_project_daily` 預填充（從 status.md pending todos 自動填入今日計畫）
-- [x] CLI REPL 對齊 MCP 新工具（新增 5 個指令，E2E Step 18 106/106 PASS）
-- [x] Scheduler 單元測試（`tests/test_scheduler.py` 42 個測試，E2E Step 17 90/90 PASS）
-- [x] CLI 自動化同步（tools/registry.py 宣告式登記表，E2E Step 19 166/166 PASS）
-- [x] Vault Git 版本控制（services/git_service.py + config.GitConfig，E2E Step 20 183/183 PASS）
-- [x] 知識萃取自動化（services/knowledge_extractor.py，E2E Step 21 208/208 PASS）
-- [x] Token 分析欄位（services/token_counter.py，E2E Step 22 224/224 PASS）
-- [x] DB 覆蓋率稽核與清理（cleanup="full" + AutoScheduler 6 jobs，E2E 224/224 PASS）
-- [ ] tests/test_knowledge_extractor.py 補單元測試
-- [ ] ChromaDB migration 機制（技術債，中優先）
-- [ ] v3 UI 開發（Tauri + React 聊天介面 + 搜尋 + 設定）
+# 專案狀態 — ai-memory-vault
 
 ## 工作脈絡
 
-**Phase 21 DB 稽核與清理（2026-04-04）完成項目：**
+v3.6 已完成所有核心功能（39 MCP 工具、Agent/Skill/Instinct 三大系統、7 個工具模組）。
+目前進入穩定化 + 打包期：Skills 知識包已建立首批（3個），detail 參數已驗證正常。
 
-### 根本問題修正
-- `core/indexer.py`：`sync()` 全量掃描改為 `cleanup="full"`（原 `incremental` 無法清孤立向量）✅
-- 清除 76 個孤立向量（515 → 439 vectors）✅
+### 最近完成的重大項目
+- Phase 22: Agent Router + 10 個 Agent 模板 + Instinct 系統
+- Phase 21: server.py 拆分為 7 個 tool 模組 + SchedulerService lifespan 單例
+- Skills 目錄建立（workspaces/_global/skills/）+ 首批 3 個 Skill 知識包
+- Roadmap 更新至 v3.6（39 工具完整清單）
+- `log_ai_conversation` detail 參數驗證（Optional[dict] 正確）
 
-### E2E 基礎強化
-- `e2e_test.py`：cleanup section 加入 `VaultService.sync()` 自動清除測試殘留 ✅
-- `e2e_test.py`：Step 2 唯一 marker 搜尋改用 `iMode="keyword"` 確保穩定性 ✅
-- `e2e_test.py`：job_count 斷言 3 → 6 ✅
+## 待辦事項
 
-### Frontmatter 修正
-- `conversations/2026-04-04-phase13.md`：`type: ai-conversation` → `type: conversation` ✅
-- `conversations/2026-04-04_phase15-coding-rules-e2e-batch.md`：補完整 frontmatter ✅
+### 進行中
 
-### AutoScheduler 擴充（3 → 6 jobs）
-- 新增 ai_weekly（週一 09:00 → `generate_ai_weekly_analysis()`）✅
-- 新增 ai_monthly（月 1 日 09:00 → `generate_ai_monthly_analysis()`）✅
-- 新增 weekly_full_sync（週日 02:00 → `VaultService.sync()`，清除靜態編輯孤立向量）✅
+- [ ] PyInstaller rebuild（打包至 v3.6.0）
 
-**E2E 最終狀態：224/224 PASS** ✅
+### 待處理
 
----
+- [ ] 安裝包版本號更新（v3.5.0 → v3.6.0）
+- [ ] 更多 Skill 知識包建立（e.g. CSharpCodingStyle_Skill, LuaCodingStyle_Skill）
+- [ ] detail 參數實際呼叫測試（重啟 MCP 後呼叫 log_ai_conversation 傳入 detail 確認）
 
-**Phase 20c（2026-04-04）：**
-- `services/token_counter.py`：TokenCounter 靜態工具 ✅
-- 週報/月報模板 Token 分析欄位填入真實數值 ✅
+### 已完成
 
-**Phase 20b（2026-04-04）：знания extraction**
-- `services/knowledge_extractor.py`：KnowledgeExtractor ✅（無 LLM 依賴）
-- `mcp_app/server.py`：extract_knowledge MCP tool ✅
-- `tools/registry.py`：11 個 ToolEntry ✅
+- [x] Roadmap.md 更新至 v3.6（完整 39 工具清單）
+- [x] server.py 版本號更新至 3.6 + log 修正
+- [x] Skills 目錄 + 首批 Skill 知識包建立
+- [x] Agent 系統（10 個 Agent 模板）驗證正常
+- [x] API Map 規則整備（02 修正 + 15 新增）
+- [x] `log_ai_conversation` 強化（detail 參數）
+- [x] 收工 SOP 更新（6步→5步）
+- [x] MCP 工具繁體中文化
+- [x] VS Code prompts 架構重構
+- [x] 排程器任務名稱 bug 修正
+- [x] 安裝包 v3.5.0 重建
 
-**Phase 20a（2026-04-04）：**
-- `services/git_service.py`：GitService + GitConfig ✅
-- VaultService 3 個 git hook 點 ✅
+## 重要決策
 
-## 技術債
-
-| 項目 | 嚴重度 |
-|------|------|
-| ~~Scheduler 無單元測試~~ | ✅ 已解決 |
-| ~~CLI REPL 與 MCP 功能未對齊~~ | ✅ 已解決 |
-| ~~知識萃取自動化~~ | ✅ 已解決 |
-| ~~Token 分析欄位空白~~ | ✅ 已解決 |
-| ~~孤立向量堆積（cleanup=incremental bug）~~ | ✅ 已解決 |
-| tests/test_knowledge_extractor.py 缺單元測試 | 低 |
-| ChromaDB migration 機制 | 中 |
-| v3 UI（Tauri + React） | 長期 |
+| 決策 | 原因 | 日期 |
+|------|------|------|
+| vault-bridge.instructions.md 為唯一橋接入口 | 避免多個 .instructions.md 重複注入 | 2026-04-08 |
+| agents.md + nav.md 設 inject:true | MCP 連線時自動注入，不需手動讀取 | 2026-04-08 |
+| 程式碼專案判斷改為通用（不列舉副檔名） | 列表永遠不完整 | 2026-04-09 |
+| 專案側 API Map 為主、Vault 存索引 | AI 直接讀取、git 同步 | 2026-04-09 |
+| log_ai_conversation 合併摘要+詳細 | 一次呼叫完成，減少收工步驟 | 2026-04-09 |
+| Skills 放於 workspaces/_global/skills/ | 全組織共用、list_skills 直接掃描 | 2026-04-10 |
+| index.md 從 list_skills 結果排除（未來） | index.md 不是 Skill 本體，需過濾 | 2026-04-10 |

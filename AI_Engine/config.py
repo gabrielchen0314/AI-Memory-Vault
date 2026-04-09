@@ -10,15 +10,27 @@ config.json（主設定）+ .env（敏感密鑰向後相容）。
 """
 import json
 import os
+import sys
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional
 
 
 # ── 路徑常數 ──────────────────────────────────────────────
-ENGINE_DIR: Path = Path( __file__ ).resolve().parent
+# ENGINE_DIR：程式所在目錄（frozen = exe 旁；dev = AI_Engine/）
+# DATA_DIR  ：可寫資料目錄（frozen = %APPDATA%\AI-Memory-Vault；dev = ENGINE_DIR）
+#   分離原因：exe 放 Program Files 時為唯讀，資料需獨立存放
+if getattr( sys, 'frozen', False ):
+    ENGINE_DIR: Path = Path( sys.executable ).resolve().parent
+    DATA_DIR:   Path = Path( os.environ.get( 'APPDATA', str( ENGINE_DIR ) ) ) / "AI-Memory-Vault"
+    DATA_DIR.mkdir( parents=True, exist_ok=True )
+else:
+    ENGINE_DIR: Path = Path( __file__ ).resolve().parent
+    DATA_DIR:   Path = ENGINE_DIR
 PROJECT_ROOT: Path = ENGINE_DIR.parent
-CONFIG_FILE: Path = ENGINE_DIR / "config.json"
+CONFIG_FILE:  Path = DATA_DIR / "config.json"
+
+__version__: str = "3.6.0"
 
 
 # region 設定資料結構
@@ -91,12 +103,12 @@ class DatabaseConfig:
     collection_name: str = "vault_main"
 
     def get_chroma_path( self ) -> str:
-        """取得 ChromaDB 絕對路徑。"""
-        return str( ENGINE_DIR / self.chroma_dir )
+        """取得 ChromaDB 絕對路徑（frozen 模式使用 DATA_DIR，確保可寫）。"""
+        return str( DATA_DIR / self.chroma_dir )
 
     def get_record_db_url( self ) -> str:
-        """取得 RecordManager SQLite URL。"""
-        return f"sqlite:///{ENGINE_DIR / self.record_db}"
+        """取得 RecordManager SQLite URL（frozen 模式使用 DATA_DIR，確保可寫）。"""
+        return f"sqlite:///{DATA_DIR / self.record_db}"
 
 
 @dataclass
@@ -175,6 +187,8 @@ class VaultPaths:
     ai_analysis_weekly: str = "personal/ai-analysis/weekly"
     ## <summary>AI 每月對話分析</summary>
     ai_analysis_monthly: str = "personal/ai-analysis/monthly"
+    ## <summary>直覺記憶卡片目錄</summary>
+    personal_instincts: str = "personal/instincts"
 
     # ── 模板子目錄 ──
     ## <summary>Agent 模板</summary>
@@ -269,6 +283,7 @@ class VaultPaths:
             self.personal_reviews_monthly,
             self.ai_analysis_weekly,
             self.ai_analysis_monthly,
+            self.personal_instincts,
             self.knowledge,
             self.templates_agents,
             self.templates_projects,

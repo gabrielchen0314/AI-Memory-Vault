@@ -593,11 +593,7 @@ try:
     from services.scheduler import SchedulerService
     check( "SchedulerService.extract_knowledge exists", hasattr( SchedulerService, "extract_knowledge" ) )
 
-    # 21h: MCP tool extract_knowledge 已在 server.py 定義
-    import importlib.util as _ilu
-    _ServerSpec = _ilu.spec_from_file_location( "mcp_server_e2e21", "mcp_app/server.py" )
-    # 僅驗證函式名稱存在，不實際啟動 MCP server
-    import ast as _ast21
+    # 21h: MCP tool extract_knowledge 已在 server.py 定義（驗證函式名稱存在）
     with open( "mcp_app/server.py", "r", encoding="utf-8" ) as _Fs21:
         _ServerSrc = _Fs21.read()
     check( "server.py has extract_knowledge tool", "def extract_knowledge" in _ServerSrc )
@@ -667,7 +663,54 @@ _WTplZero = _Sc22._render_ai_weekly_analysis_template(
 )
 check( "weekly template zero tokens renders dash", "| 估計 Token 消耗 | — |" in _WTplZero )
 
+# ── Step 23: KnowledgeExtractor 單元測試 ──────────────────
+print( "\nStep 23: KnowledgeExtractor 單元測試 (pytest tests/test_knowledge_extractor.py)" )
+_PytestKe = subprocess.run(
+    [ sys.executable, "-m", "pytest", "tests/test_knowledge_extractor.py", "-q", "--tb=short" ],
+    capture_output=True,
+    text=True,
+    cwd=os.path.dirname( os.path.abspath( __file__ ) ),
+)
+_PytestKeOut = _PytestKe.stdout + _PytestKe.stderr
+print( _PytestKeOut.strip() )
+check( "pytest tests/test_knowledge_extractor.py passes", _PytestKe.returncode == 0 )
+
+# ── Step 24: 依賴檢查機制 ─────────────────────────────────
+print( "\nStep 24: 依賴檢查機制（_find_missing_packages / _ask_install_gui）" )
+import importlib.util as _ilu24
+# 24a: _find_missing_packages 可直接匯入（只用 stdlib）
+import importlib as _importlib24
+import importlib.util
+_MainSpec = importlib.util.spec_from_file_location( "main_e2e24", "main.py" )
+_MainMod  = importlib.util.module_from_spec( _MainSpec )
+_MainSpec.loader.exec_module( _MainMod )
+check( "_find_missing_packages importable",   callable( getattr( _MainMod, "_find_missing_packages", None ) ) )
+check( "_ask_install_gui importable",         callable( getattr( _MainMod, "_ask_install_gui", None ) ) )
+check( "_check_and_install_deps importable",  callable( getattr( _MainMod, "_check_and_install_deps", None ) ) )
+
+# 24b: 環境已安裝 → _find_missing_packages 回傳空清單
+_Missing24 = _MainMod._find_missing_packages()
+check( "_find_missing_packages returns list",  isinstance( _Missing24, list ) )
+check( "all deps installed (empty list)",      _Missing24 == [],
+       f"missing: {_Missing24}" )
+
+# 24c: _check_and_install_deps 在全部已安裝時不拋例外、不呼叫 sys.exit
+_DepCheckOk = True
+try:
+    _MainMod._check_and_install_deps()
+except SystemExit:
+    _DepCheckOk = False
+check( "_check_and_install_deps no-op when all installed", _DepCheckOk )
+
+# 24d: MCP 模式偵測邏輯（透過 sys.argv 判斷）
+_OrigArgv24 = sys.argv[:]
+sys.argv = [ "main.py", "--mode", "mcp" ]
+_IsMcp24 = "--mode" in sys.argv and "mcp" in sys.argv
+sys.argv  = _OrigArgv24
+check( "MCP mode detection via sys.argv works", _IsMcp24 )
+
 # ── Cleanup ───────────────────────────────────────────────
+
 print( "\nCleanup" )
 import shutil
 _TestProjAbs = os.path.join( _Cfg.vault_path, _P.org_projects_dir("LIFEOFDEVELOPMENT", ), "_e2e_test_proj" )

@@ -1,0 +1,16 @@
+usage: vault-cli.exe [-h] [--mode {cli,api,mcp}] [--setup]
+                     [--setup-section {vault,user,org,llm}] [--reconfigure]
+                     [--scheduler] [--menu] [--reindex]
+
+AI Memory Vault v3 — 記憶庫引擎
+
+options:
+  -h, --help            show this help message and exit
+  --mode {cli,api,mcp}  啟動模式：cli（互動終端）/ api（FastAPI 伺服器）/ mcp（MCP stdio 伺服器）
+  --setup               強制重新執行完整 Setup Wizard
+  --setup-section {vault,user,org,llm}
+                        設定特定區段：vault / user / org / llm
+  --reconfigure         重新設定所有區段（保留資料庫，逐項引導）
+  --scheduler           啟動 APScheduler 守護模式（weekly/monthly/daily 自動生成摘要）
+  --menu                CLI 選單模式（方向鍵圓式選單，預設 CLI 指令列）
+  --reindex             清除向量索引並完整重建（嵌入模型或 chunk 設定變更後使用）

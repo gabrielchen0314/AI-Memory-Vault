@@ -1,0 +1,1 @@
+今日順利完成了 VaultService God Object 的拆分重構，解耦了原本臃腫的核心，並重構為 Facade 介面。同時修復了原本因檔案結構變更而損壞的一系列單元測試（包含 MCP Tool 的 Mock 以及 services.scheduler 針對 VaultService 的依賴載入方式）。目前 152 項測試全數綠燈通過。也確認了前兩個架構問題階段（Tools 目錄搬遷與 VaultResult 移除）皆已完成。架構穩定度與模組化程度大幅提升。

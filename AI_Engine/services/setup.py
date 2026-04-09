@@ -8,6 +8,7 @@ Vault 初始化引導服務
 @date 2026.04.01
 """
 import os
+import sys
 from datetime import datetime
 
 from config import AppConfig, ConfigManager
@@ -39,33 +40,58 @@ class SetupService:
             "vscode_files_created": 0,
         }
 
-        print( "\n[Setup] 🚀 開始初始化 AI Memory Vault v3..." )
-        print( f"[Setup] 📁 Vault 路徑：{iConfig.vault_path}" )
+        def _p( msg: str ) -> None:
+            """Print + 立即 flush（frozen/cp950 環境下防止緩衝遺失）。"""
+            print( msg )
+            sys.stdout.flush()
+
+        _ChromaPath = iConfig.database.get_chroma_path()
+        _RecordPath = iConfig.database.get_record_db_url()
+
+        _p( "\n[Setup] 開始初始化 AI Memory Vault v3..." )
+        _p( f"[Setup] Vault 路徑    : {iConfig.vault_path}" )
+        _p( f"[Setup] ChromaDB 路徑 : {_ChromaPath}" )
+        _p( f"[Setup] RecordDB URL  : {_RecordPath}" )
 
         # Step 1: 建立目錄結構
+        _p( "[Setup] Step 1/6 - 建立目錄結構..." )
         _Stats["dirs_created"] = cls._create_vault_structure( iConfig.vault_path, iConfig.paths )
+        _p( f"[Setup] Step 1/6 - 完成（{_Stats['dirs_created']} 個目錄建立）" )
 
         # Step 2: 建立初始檔案
+        _p( "[Setup] Step 2/6 - 建立初始檔案..." )
         _Stats["files_created"] = cls._create_initial_files( iConfig )
+        _p( f"[Setup] Step 2/6 - 完成（{_Stats['files_created']} 個檔案建立）" )
 
         # Step 3: 初始化資料庫
+        _ChromaExists = os.path.isdir( _ChromaPath )
+        _p( f"[Setup] Step 3/6 - 初始化資料庫...（ChromaDB {'已存在，開啟舊資料' if _ChromaExists else '首次建立'}）" )
         cls._init_database( iConfig )
         _Stats["db_initialized"] = True
+        _p( "[Setup] Step 3/6 - 完成" )
 
         # Step 4: 寫入 config.json
+        _p( "[Setup] Step 4/6 - 寫入 config.json..." )
         ConfigManager.save( iConfig )
-        print( f"[Setup] 💾 config.json 已寫入" )
+        _p( f"[Setup] Step 4/6 - 完成（config 已儲存）" )
 
-        # Step 5: 初始同步 Vault 至向量資料庫
-        _Stats["chunks_indexed"] = cls._initial_sync( iConfig )
+        # Step 5: 首次同步 — setup 階段略過
+        # STATUS_STACK_BUFFER_OVERRUN 是 OS 層級 kill，try/except 無效
+        # 首次 sync 將在 vault-mcp.exe / vault-cli.exe 正常啟動後使用時自動觸發
+        _p( "[Setup] Step 5/6 - 向量同步略過（首次使用 MCP/CLI 時自動建立）" )
+        _Stats["chunks_indexed"] = 0
+
         # Step 6: 生成 VS Code 全域設定檔
+        _p( "[Setup] Step 6/6 - 建立 VS Code 設定檔..." )
         _Stats["vscode_files_created"] = cls._setup_vscode_integration( iConfig )
-        print( f"\n[Setup] ✅ 初始化完成！" )
-        print( f"        目錄：{_Stats['dirs_created']} 個" )
-        print( f"        檔案：{_Stats['files_created']} 個" )
-        print( f"        資料庫：{'已初始化' if _Stats['db_initialized'] else '失敗'}" )
-        print( f"        向量索引：{_Stats['chunks_indexed']} 個 chunks" )
-        print( f"        VS Code 設定檔：{_Stats['vscode_files_created']} 個" )
+        _p( f"[Setup] Step 6/6 - 完成（{_Stats['vscode_files_created']} 個設定檔）" )
+
+        _p( "\n[Setup] 初始化完成！" )
+        _p( f"        目錄     : {_Stats['dirs_created']} 個" )
+        _p( f"        檔案     : {_Stats['files_created']} 個" )
+        _p( f"        資料庫   : {'已初始化' if _Stats['db_initialized'] else '失敗'}" )
+        _p( f"        向量索引 : {_Stats['chunks_indexed']} 個 chunks" )
+        _p( f"        VS Code  : {_Stats['vscode_files_created']} 個設定檔" )
         return _Stats
     #endregion
 
@@ -141,12 +167,17 @@ class SetupService:
         from core import embeddings as _EmbModule
         from core import vectorstore as _VsModule
 
+        def _p( msg: str ) -> None:
+            print( msg )
+            sys.stdout.flush()
+
         # 確保 ChromaDB 目錄存在
         _ChromaDir = iConfig.database.get_chroma_path()
         os.makedirs( _ChromaDir, exist_ok=True )
 
         # 初始化嵌入模型設定
         _EmbModule.initialize( iConfig.embedding.model )
+        _p( f"[Setup] DB - 嵌入模型設定完成（{iConfig.embedding.model}）" )
 
         # 初始化向量庫設定
         _VsModule.initialize(
@@ -154,13 +185,13 @@ class SetupService:
             iRecordDbUrl=iConfig.database.get_record_db_url(),
             iCollectionName=iConfig.database.collection_name,
         )
+        _p( "[Setup] DB - 向量庫路徑設定完成" )
 
-        # 觸發建立（lru_cache 會快取實例）
-        _Vs = _VsModule.get_vectorstore()
+        # 僅建立 RecordManager schema（純 SQLite，無 ML 載入）
+        # ChromaDB 向量庫將在首次 sync/search 時延遲初始化
+        _p( "[Setup] DB - 正在建立 RecordManager schema（SQLite）..." )
         _Rm = _VsModule.get_record_manager()
-
-        print( f"[Setup] 🗄️  ChromaDB 初始化完成：{_ChromaDir}" )
-        print( f"[Setup] 🗄️  RecordManager 初始化完成" )
+        _p( f"[Setup] DB - RecordManager 完成（{_ChromaDir}）" )
     #endregion
 
     #region 私有方法 — 初始同步
@@ -177,17 +208,19 @@ class SetupService:
         """
         from services.vault import VaultService
 
-        print( f"[Setup] 🔄 開始首次同步 Vault → 向量資料庫..." )
+        print( f"[Setup] 開始首次同步 Vault..." )
+        sys.stdout.flush()
         VaultService.initialize( iConfig )
         _SyncResult = VaultService.sync()
         _Total = _SyncResult.get( "total_chunks", 0 )
         _Stats = _SyncResult.get( "index_stats", {} )
         print(
-            f"[Setup] ✅ 同步完成：新增 {_Stats.get('num_added', 0)} | "
+            f"[Setup] 同步完成：新增 {_Stats.get('num_added', 0)} | "
             f"更新 {_Stats.get('num_updated', 0)} | "
             f"刪除 {_Stats.get('num_deleted', 0)} | "
             f"總計 {_Total} chunks"
         )
+        sys.stdout.flush()
         return _Total
     #endregion
 

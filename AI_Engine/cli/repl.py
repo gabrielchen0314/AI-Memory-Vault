@@ -21,6 +21,8 @@ CLI 互動介面 (v3)
   aimonthly [<date>]               生成 AI 對話月報
   projects                         列出所有組織與專案
   integrity                        檢查 ChromaDB 向量完整性
+  clean                            清除孤立向量記錄（對應 .md 已刪除）  rename <old_path> <new_path>     移動或重命名 .md 檔案並同步向量索引  checkindex                       檢查向量索引是否因設定變更需重建
+  reindex                          清除並重建 ChromaDB 向量索引
   help
   q / exit
 
@@ -31,23 +33,16 @@ CLI 互動介面 (v3)
 """
 import sys
 from typing import Optional
-from tools.registry import TOOL_REGISTRY, REGISTRY_BY_NAME
+from cli.registry import TOOL_REGISTRY, REGISTRY_BY_NAME
 
 
 class VaultRepl:
     """AI Memory Vault v3 互動式 CLI。"""
 
-    ## <summary>短指令別名表（registry 工具自動產生；手動工具硬編碼）</summary>
+    ## <summary>短指令別名表（全部自動產生自 TOOL_REGISTRY + help）</summary>
     _ALIASES: dict = {
         **{ t.alias: t.name for t in TOOL_REGISTRY },
-        "s":  "search",
-        "r":  "read",
-        "w":  "write",
-        "d":  "delete",
-        "st": "status",
-        "t":  "todo",
-        "p":  "projects",
-        "h":  "help",
+        "h": "help",
     }
 
     ## <summary>應用程式設定</summary>
@@ -78,10 +73,7 @@ class VaultRepl:
             except ImportError:
                 return
 
-        _AllCmds = list( self._ALIASES.keys() ) + [ t.name for t in TOOL_REGISTRY ] + list( {
-            "search", "read", "write", "delete",
-            "status", "todo", "projects", "help", "exit",
-        } )
+        _AllCmds = list( self._ALIASES.keys() ) + [ t.name for t in TOOL_REGISTRY ] + [ "help", "exit" ]
 
         def _completer( iText: str, iState: int ):
             _Matches = [ c for c in _AllCmds if c.startswith( iText ) ]
@@ -125,17 +117,8 @@ class VaultRepl:
             print( "⚠️  需要 questionary：pip install questionary" )
             return
 
-        # 手動工具（不在 TOOL_REGISTRY）
-        _MenuChoices = [
-            questionary.Choice( "🔍  搜尋記憶庫     (search)",  value="search" ),
-            questionary.Choice( "📖  讀取筆記        (read)",    value="read" ),
-            questionary.Choice( "✏️   寫入筆記        (write)",   value="write" ),
-            questionary.Choice( "🗑️   刪除筆記        (delete)",  value="delete" ),
-            questionary.Choice( "📋  專案狀態        (status)",  value="status" ),
-            questionary.Choice( "☑️   切換 Todo       (todo)",    value="todo" ),
-            questionary.Choice( "📁  列出所有專案    (projects)", value="projects" ),
-        ]
-        # Registry 工具自動產生（依 group 分組，群組切換時插入分隔線）
+        # 全部自動產生自 TOOL_REGISTRY（依 group 分組，群組切換時插入分隔線）
+        _MenuChoices = []
         _CurGroup = ""
         for _T in TOOL_REGISTRY:
             if _T.group != _CurGroup:
@@ -178,7 +161,11 @@ class VaultRepl:
         """根據選單選擇，用 questionary prompt 收集參數後執行。"""
         # 1. Registry 工具（invoke 非 None）→ 通用收集器自動分發
         _Entry = REGISTRY_BY_NAME.get( iCmd )
-        if _Entry and _Entry.invoke is not None:
+        if not _Entry:
+            print( f"❓ 未知操作：{iCmd}" )
+            return
+
+        if _Entry.invoke is not None:
             from services.vault import VaultService
             _Kwargs = self._collect_params( q, _Entry )
             if _Kwargs is None:
@@ -264,6 +251,24 @@ class VaultRepl:
             if _Path:
                 self._cmd_delete( [_Path] )
 
+        elif iCmd == "rename":
+            _OldPath = self._pick_vault_path( q )
+            if not _OldPath:
+                return
+            _NewPath = q.text( "目標路徑（相對 Vault 根目錄）：", default=_OldPath ).ask()
+            if _NewPath and _NewPath != _OldPath:
+                self._cmd_rename( [_OldPath, _NewPath] )
+
+        elif iCmd == "list":
+            _Top = self._pick_top_folder( q, title="選擇目錄：", allow_skip=True )
+            if _Top is None:
+                return
+            _Rec = q.confirm( "遞迴列出子目錄？", default=False ).ask()
+            _Args = [_Top] if _Top else []
+            if _Rec:
+                _Args.append( "-r" )
+            self._cmd_list( _Args )
+
         elif iCmd == "sync":
             self._cmd_sync( [] )
 
@@ -296,6 +301,15 @@ class VaultRepl:
 
         elif iCmd == "integrity":
             self._cmd_integrity( [] )
+
+        elif iCmd == "clean":
+            self._cmd_clean_orphans( [] )
+
+        elif iCmd == "checkindex":
+            self._cmd_checkindex( [] )
+
+        elif iCmd == "reindex":
+            self._cmd_reindex( [] )
 
     #region 私有方法 — 選單輔助
     def _pick_org( self, q ) -> Optional[str]:
@@ -398,9 +412,9 @@ class VaultRepl:
 
     #region 私有方法 — 指令分發
     def _build_help( self ) -> str:
-        """根據 TOOL_REGISTRY 動態建立 help 文字（每次 __init__ 呼叫一次）。"""
+        """根據 TOOL_REGISTRY 全自動建立 help 文字（每次 __init__ 呼叫一次）。"""
         _GroupLabels = {
-            "files":    "同步",
+            "files":    "檔案操作",
             "projects": "專案管理",
             "reviews":  "進度表",
             "ai":       "AI 對話",
@@ -411,12 +425,6 @@ class VaultRepl:
             "╔══════════════════════════════════════════════════════════╗",
             "║        AI Memory Vault v3 — CLI 指令列表                ║",
             "╠══════════════════════════════════════════════════════════╣",
-            "║  搜尋與檔案操作                                          ║",
-            "║  search <query> [--cat C] [--type T] [--mode M]         ║",
-            "║      搜尋記憶庫  M: keyword | semantic | (空=均衡)       ║",
-            "║  read <path>           讀取筆記                          ║",
-            "║  write <path>          寫入/覆蓋筆記（多行輸入）         ║",
-            "║  delete <path>         刪除筆記                          ║",
         ]
         _CurGroup = ""
         for _T in TOOL_REGISTRY:
@@ -428,15 +436,11 @@ class VaultRepl:
             _Lines.append( f"║  {_T.help_line}" )
         _Lines += [
             "╠══════════════════════════════════════════════════════════╣",
-            "║  status <org> <proj>   讀取專案狀態                      ║",
-            "║  todo <path> <text> [done|undone]  切換 todo 狀態        ║",
-            "║  projects              列出所有組織與專案                 ║",
             "║  help  /  q / exit                                       ║",
             "╠══════════════════════════════════════════════════════════╣",
         ]
         _AliasStr = "  ".join( f"{t.alias}={t.name}" for t in TOOL_REGISTRY )
         _Lines.append( f"║  別名：{_AliasStr}" )
-        _Lines.append( "║  s=search r=read w=write d=delete st=status t=todo p=projects" )
         _Lines.append( "╚══════════════════════════════════════════════════════════╝" )
         _Lines.append( "" )
         return "\n".join( _Lines )
@@ -524,6 +528,24 @@ class VaultRepl:
         if isinstance( _Result, str ):
             print( f"✅ {_Result}" )
 
+    ## <summary>手動指令到 _cmd_* 方法名的映射（invoke=None 的 registry 工具）</summary>
+    _CMD_MAP: dict = {
+        "search":     "_cmd_search",
+        "read":       "_cmd_read",
+        "write":      "_cmd_write",
+        "delete":     "_cmd_delete",
+        "rename":     "_cmd_rename",
+        "list":       "_cmd_list",
+        "sync":       "_cmd_sync",
+        "status":     "_cmd_status",
+        "todo":       "_cmd_todo",
+        "projects":   "_cmd_projects",
+        "integrity":  "_cmd_integrity",
+        "clean":      "_cmd_clean_orphans",
+        "checkindex": "_cmd_checkindex",
+        "reindex":    "_cmd_reindex",
+    }
+
     def _dispatch( self, iLine: str ) -> None:
         """解析並執行一行指令（支援短別名）。"""
         _Parts = iLine.split()
@@ -531,37 +553,30 @@ class VaultRepl:
         _Cmd   = self._ALIASES.get( _Raw, _Raw )   # 展開別名
         _Args  = _Parts[1:]
 
-        # 1. Registry 工具（invoke 非 None）→ 通用分發
-        _Entry = REGISTRY_BY_NAME.get( _Cmd )
-        if _Entry and _Entry.invoke is not None:
-            try:
-                self._run_registry( _Entry, _Args )
-            except Exception as _Ex:
-                print( f"❌ 執行失敗：{_Ex}" )
+        # help 特殊處理
+        if _Cmd == "help":
+            print( self._HELP )
             return
 
-        # 2. 手動工具（複雜輸出格式，或 invoke=None 的 registry 工具）
-        _Handlers = {
-            "search":    self._cmd_search,
-            "read":      self._cmd_read,
-            "write":     self._cmd_write,
-            "delete":    self._cmd_delete,
-            "sync":      self._cmd_sync,
-            "status":    self._cmd_status,
-            "todo":      self._cmd_todo,
-            "projects":  self._cmd_projects,
-            "integrity": self._cmd_integrity,
-            "help":      lambda _: print( self._HELP ),
-        }
-
-        _Handler = _Handlers.get( _Cmd )
-        if _Handler:
-            try:
-                _Handler( _Args )
-            except Exception as _Ex:
-                print( f"❌ 執行失敗：{_Ex}" )
-        else:
+        # Registry 查找
+        _Entry = REGISTRY_BY_NAME.get( _Cmd )
+        if not _Entry:
             print( f"❓ 未知指令：{_Cmd}（輸入 'help' 查看可用指令）" )
+            return
+
+        try:
+            if _Entry.invoke is not None:
+                # 自動分發（positional args → params → invoke()）
+                self._run_registry( _Entry, _Args )
+            else:
+                # 手動工具（_cmd_* 方法）
+                _MethodName = self._CMD_MAP.get( _Cmd )
+                if _MethodName:
+                    getattr( self, _MethodName )( _Args )
+                else:
+                    print( f"❌ {_Cmd} 尚無對應的 _cmd_* 實作" )
+        except Exception as _Ex:
+            print( f"❌ 執行失敗：{_Ex}" )
 
     def _cmd_search( self, iArgs: list ) -> None:
         """search <query> [--cat C] [--type T] [--mode M]"""
@@ -659,6 +674,53 @@ class VaultRepl:
         else:
             print( f"✅ 已刪除：{_Path}（移除 {_Stats.get('deleted_chunks', 0)} 個向量）" )
 
+    def _cmd_rename( self, iArgs: list ) -> None:
+        """rename <old_path> <new_path>"""
+        if len( iArgs ) < 2:
+            print( "用法：rename <old_path> <new_path>  （別名：mv）" )
+            return
+        _OldPath, _NewPath = iArgs[0], iArgs[1]
+        if _OldPath == _NewPath:
+            print( "⚠️  來源與目的地相同，無需操作。" )
+            return
+        from services.vault import VaultService
+        _Stats, _Err = VaultService.rename_note( _OldPath, _NewPath )
+        if _Err:
+            print( f"❌ {_Err}" )
+        else:
+            print(
+                f"✅ 已移動：{_Stats['old_path']} → {_Stats['new_path']}\n"
+                f"   移除 {_Stats['deleted_chunks']} 舊 chunks，索引 {_Stats['indexed_chunks']} 新 chunks。"
+            )
+
+    def _cmd_list( self, iArgs: list ) -> None:
+        """list [<path>] [-r]  — 列出目錄下所有 .md 檔案（-r 遞迴）"""
+        import datetime
+        _Path      = ""
+        _Recursive = False
+        for _A in iArgs:
+            if _A == "-r":
+                _Recursive = True
+            elif not _Path:
+                _Path = _A
+
+        from services.vault import VaultService
+        _Result, _Err = VaultService.list_notes( _Path, _Recursive )
+        if _Err:
+            print( f"❌ {_Err}" )
+            return
+        _Total = _Result["total"]
+        _Label = _Result["path"]
+        _Rec   = "（遞迴）" if _Recursive else ""
+        if _Total == 0:
+            print( f"📂 {_Label}{_Rec}：無 .md 檔案。" )
+            return
+        print( f"📂 {_Label}{_Rec}  — {_Total} 個 .md 檔案\n" )
+        for _N in _Result["notes"]:
+            _Dt = datetime.datetime.fromtimestamp( _N["modified"] ).strftime( "%Y-%m-%d" )
+            _Kb = f"{_N['size'] / 1024:.1f}KB" if _N["size"] >= 1024 else f"{_N['size']}B"
+            print( f"  {_Dt}  {_Kb:>8}  {_N['path']}" )
+
     def _cmd_sync( self, iArgs: list ) -> None:
         """sync"""
         from services.vault import VaultService
@@ -750,4 +812,79 @@ class VaultRepl:
             print( "  孤立向量（僅在 DB，無對應 .md）：" )
             for _S in _Orphaned[:10]:
                 print( f"    {_S}" )
+            if len( _Orphaned ) > 10:
+                print( f"    ... 及 {len( _Orphaned ) - 10} 筆更多" )
+            print( "   輸入 'clean' 或 'cl' 清除孤立向量。" )
+
+    def _cmd_clean_orphans( self, iArgs: list ) -> None:
+        """clean — 清除 ChromaDB 中的孤立向量記錄"""
+        from services.vault import VaultService
+
+        # 先檢查，确認有孤立向量後再向使用者確認
+        _Integrity, _Err = VaultService.check_integrity()
+        if _Err:
+            print( f"❌ 檢查失敗：{_Err}" )
+            return
+
+        _Orphaned = _Integrity.get( "orphaned", [] )
+        if not _Orphaned:
+            print( "✅ DB 已整潔，無孤立向量。" )
+            return
+
+        print( f"⚠️  找到 {len( _Orphaned )} 個孤立來源（對應 .md 已删除）：" )
+        for _S in _Orphaned[:5]:
+            print( f"    {_S}" )
+        if len( _Orphaned ) > 5:
+            print( f"    ... 及 {len( _Orphaned ) - 5} 筆更多" )
+
+        _Confirm = input( "   確認清除？ [yes/N] " ).strip().lower()
+        if _Confirm != "yes":
+            print( "❌ 已取消。" )
+            return
+
+        _Result, _ClErr = VaultService.clean_orphans()
+        if _ClErr:
+            print( f"❌ 清除失敗：{_ClErr}" )
+            return
+        print( f"✅ 已清除 {_Result['removed']} 個孤立向量，來自 {len( _Result['orphaned_sources'] )} 個來源。" )
+
+    def _cmd_checkindex( self, iArgs: list ) -> None:
+        """checkindex — 檢查向量索引是否因設定變更需重建"""
+        from config import ConfigManager
+        from core.migration import MigrationManager
+        _Config = ConfigManager.load()
+        _NeedsReindex, _Changes = MigrationManager.check( _Config )
+        if not _NeedsReindex:
+            print( "✅ 向量索引狀態：正常（設定未變更，無需重建）" )
+            return
+        print( "⚠️  向量索引需要重建，以下設定已變更：" )
+        print( MigrationManager.describe_changes( _Changes ) )
+        print( "   請輸入 'reindex' 或 'ri' 重建索引。" )
+
+    def _cmd_reindex( self, iArgs: list ) -> None:
+        """reindex — 清除並重建 ChromaDB 向量索引"""
+        print( "⚠️  即將清除向量索引並完整重建，此操作不可逆。" )
+        _Confirm = input( "   確認重建？ [yes/N] " ).strip().lower()
+        if _Confirm != "yes":
+            print( "❌ 已取消。" )
+            return
+
+        from config import ConfigManager
+        from core.migration import MigrationManager
+        from services.vault import VaultService
+
+        print( "🔄 正在清除索引..." )
+        _Config = ConfigManager.load()
+        _Ok, _Msg = MigrationManager.reset_index( _Config )
+        if not _Ok:
+            print( f"❌ 清除失敗：{_Msg}" )
+            return
+
+        print( "🔄 正在重建索引..." )
+        _Stats = VaultService.sync()
+        print(
+            f"✅ 重建完成：{_Stats['total_chunks']} chunks / "
+            f"{_Stats['total_files']} 個 .md 檔 / "
+            f"新增 {_Stats['index_stats']['num_added']} 筆"
+        )
     #endregion

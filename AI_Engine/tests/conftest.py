@@ -110,7 +110,8 @@ def patch_vault( monkeypatch, vault_root ):
                 "path": f"workspaces/{iOrg}/projects/{iProject}/status.md",
             }, None
 
-    monkeypatch.setattr( _SchedMod, "VaultService", _FakeVault )
+    import services.vault as _VaultMod
+    monkeypatch.setattr( _VaultMod, "VaultService", _FakeVault )
     yield _FakeVault
 
 

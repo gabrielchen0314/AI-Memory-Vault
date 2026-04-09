@@ -3,7 +3,7 @@ type: roadmap
 project: ai-memory-vault
 org: LIFEOFDEVELOPMENT
 created: 2026.04.04
-last_updated: 2026.04.05
+last_updated: 2026.04.10
 ---
 
 # 專案 Roadmap — AI Memory Vault
@@ -51,7 +51,7 @@ AI-powered Vault 知識管理系統，以 MCP Server 形式整合至 VS Code / C
 ### Phase 15（品質 + 穩健性）✅
 - E2E 35/35 全通過 ✅
 - `check_vault_integrity`、`batch_write_notes`、`update_todo` MCP tool ✅
-- `generate_*_review` 冪等修正（永遠覆蓋）✅
+- `generate_*_review` 冪等修正（永遠覆寫）✅
 - Coding 規則 3 層架構建立 ✅
 
 ### Phase 16（工具補齊 + 規則整合）✅
@@ -78,10 +78,6 @@ AI-powered Vault 知識管理系統，以 MCP Server 形式整合至 VS Code / C
 - Embedding 策略評估（chunk_size=500 / overlap=50 已設定可調）✅
 - 混合搜尋模式預設（BM25 0.4 / Vector 0.6）+ keyword/semantic 指定模式 ✅
 
----
-
-## 已完成
-
 ### Phase 19（功能補齊 + 技術負債清除）✅
 - [x] `generate_project_daily` 內容預填充（從 status.md 待辦事項自動填入「今日計畫」）
 - [x] CLI REPL 實作（`cli/repl.py` — 13 個指令，直接呼叫 VaultService / SchedulerService，E2E Step 16 89/89 PASS）
@@ -89,29 +85,50 @@ AI-powered Vault 知識管理系統，以 MCP Server 形式整合至 VS Code / C
 - [x] CLI REPL 對齊 MCP 工具（新增 `review` / `genstatus` / `log` / `aiweekly` / `aimonthly` 和別名，E2E Step 18 106/106 PASS）
 - [x] CLI 自動化同步（`tools/registry.py` 宣告式登記表，repl.py 自動橋接，E2E Step 19 166/166 PASS）
 
----
-
-## 進行中
-
-### Phase 20（版本控制 + 知識萃取）
-
-#### Vault Git 版本控制 ✅
+### Phase 20（版本控制 + 知識萃取）✅
 - [x] `services/git_service.py`（GitService：ensure_repo, commit, commit_delete）
 - [x] `config.py` 新增 `GitConfig`（auto_commit: bool, author_name, author_email）
 - [x] `VaultService.write_note()` / `delete_note()` / `batch_write_notes()` 鉤入 git commit
 - [x] E2E Step 20（Git 整合，17 checks，183/183 PASS）
+- [x] `extract_knowledge` MCP tool + `KnowledgeExtractor` 服務
 
-#### 知識萃取自動化（待實作）
-- [ ] `conversations/` → `knowledge/` 自動提取（LLM 摘要 + 關鍵字卡片）
-- [ ] 新增 MCP tool：`extract_knowledge`
+### Phase 21（架構重整 — server 拆分 + 工具強化）✅
+- [x] MCP Server 由單一 server.py（730 行）拆分為 7 個工具模組（mcp_app/tools/）
+- [x] SchedulerService + InstinctService 改為 lifespan 單例（消除 C-2 問題）
+- [x] `edit_note` 局部編輯 MCP tool（old_text → new_text 替換）
+- [x] `rename_note` 筆記移動 + ChromaDB 向量再索引
+- [x] `grep_vault` 精確文字 / 正規表達式搜尋
+- [x] `add_todo` / `remove_todo` 新增/移除 todo 項目
+- [x] `check_index_status` / `reindex_vault` / `clean_orphans` 索引管理 3 工具
+- [x] `token_counter.py` 服務 + AI 週報 Token 欄位
+- [x] Logging 全模組統一（core/logger.py + logging 取代散落 print）
+- [x] `log_ai_conversation` 強化：`detail` 參數（Optional[dict]）支援結構化詳細紀錄
+- [x] API Map 規則整備：02 修正 + 15 新增（api-map-writing-guide.md）
+- [x] VS Code prompts 架構重構（vault-bridge 唯一橋接入口原則）
 
-#### Token 分析（待實作）
-- [ ] `log_conversation` 加入 token_count 欄位（可選，從 LLM response 擷取）
-- [ ] AI 週報/月報 token 統計欄位自動計算
+### Phase 22（Agent + Skill + Instinct 系統）✅
+- [x] `AgentRouter` 服務（services/agent_router.py）— 讀取 templates/agents/*.md
+- [x] `dispatch_agent` / `list_agents` MCP tools（agent_tools.py）
+- [x] `list_skills` / `load_skill` MCP tools（從 workspaces/_global/skills/ 載入）
+- [x] 10 個 Agent 模板建立（Architect / CodeReviewer / Planner / Refactor-Cleaner / DocUpdater / GitCommitter / BuildErrorResolver / SecurityReviewer / TddGuide / LearnTrigger）
+- [x] `InstinctService`（services/instinct.py）— 直覺卡片 CRUD + 語意搜尋
+- [x] `create_instinct` / `update_instinct` / `search_instincts` / `list_instincts` MCP tools
+- [x] `generate_retrospective` 月度復盤報告 MCP tool
 
 ---
 
-## 長期展望（Phase 21+）
+## 進行中
+
+### Phase 23（Skills 知識包建立 + 收尾）
+
+- [ ] 建立 `workspaces/_global/skills/` 目錄 + 首批 Skill 知識包
+- [ ] 驗證 `detail` 參數 FastMCP 相容性（MCP 重啟後測試）
+- [ ] PyInstaller rebuild（打包至 v3.6.0）
+- [ ] 安裝包版本號更新（v3.5.0 → v3.6.0）
+
+---
+
+## 長期展望（Phase 24+）
 
 | 方向 | 說明 |
 |------|------|
@@ -119,6 +136,8 @@ AI-powered Vault 知識管理系統，以 MCP Server 形式整合至 VS Code / C
 | Web UI | 輕量 Next.js dashboard |
 | 多使用者 | team Vault 支援 |
 | Mobile | Obsidian Mobile + MCP 遠端連線 |
+| 統一錯誤模型 | VaultError 基礎異常 + VaultResult 資料類別 |
+| 動態 Task 管理 | create / get / update / stop 任務 |
 
 ---
 
@@ -126,32 +145,84 @@ AI-powered Vault 知識管理系統，以 MCP Server 形式整合至 VS Code / C
 
 | 負債項目 | 嚴重度 | 說明 |
 |---------|------|------|
-| Scheduler 單元測試 | ✅ | 42 個測試，conftest.py stub，E2E Step 17 整合 |
-| CLI REPL 與 MCP 功能未對齊 | ✅ | Phase 19 全部補齊 + 自動化同步 |
+| VaultError 統一錯誤模型 | 中 | 目前 4 層各有不同錯誤格式 |
+| CLI 手動 dispatch 未完全遷移 | 低 | ~10 個工具尚未納入 TOOL_REGISTRY |
 | ChromaDB migration 機制 | 中 | Schema 變更時無 migration 路徑 |
-| Token 分析欄位空白 | 低 | AI 週報/月報 Token 欄位無自動計算 |
 
 ---
 
-## MCP Tools 清單（18 個）
+## MCP Tools 清單（39 個，v3.6）
 
-| Tool                           | 版本加入 | 說明                          |
-| ------------------------------ | ---- | --------------------------- |
-| `search_vault`                 | v1   | BM25 + 向量混合搜尋               |
-| `sync_vault`                   | v1   | 增量同步 .md → ChromaDB         |
-| `read_note`                    | v1   | 讀取 Vault 筆記原始內容             |
-| `write_note`                   | v1   | 寫入/更新 Vault 筆記 + 索引         |
-| `generate_project_daily`       | v3   | 專案每日進度模板（冪等）                |
-| `generate_daily_review`        | v3   | 每日總進度表（永遠覆寫，支援 projects 參數） |
-| `generate_weekly_review`       | v3   | 每週總進度表（永遠覆寫）                |
-| `generate_monthly_review`      | v3   | 每月總進度表（永遠覆寫）                |
-| `log_ai_conversation`          | v3   | 記錄 AI 對話至 conversations/    |
-| `generate_ai_weekly_analysis`  | v3   | AI 對話週報分析模板                 |
-| `generate_ai_monthly_analysis` | v3   | AI 對話月報分析模板                 |
-| `generate_project_status`      | v3.2 | status.md 模板生成（冪等）          |
-| `list_projects`                | v3.2 | 列出所有組織及專案                   |
-| `batch_write_notes`            | v3.3 | 批次寫入多筆，單次 ChromaDB 索引       |
-| `update_todo`                  | v3.3 | todo checkbox toggle（不覆蓋全文） |
-| `check_vault_integrity`        | v3.3 | 孤立 ChromaDB 向量偵測            |
-| `get_project_status`           | v3.4 | status.md 結構化讀取             |
-| `delete_note`                  | v3.5 | 刪除 .md 並移除 ChromaDB 向量      |
+### Vault 筆記操作（vault_tools.py）
+
+| Tool | 版本加入 | 說明 |
+|------|----------|------|
+| `search_vault` | v1 | BM25 + 向量混合搜尋 |
+| `sync_vault` | v1 | 增量同步 .md → ChromaDB |
+| `read_note` | v1 | 讀取 Vault 筆記原始內容 |
+| `write_note` | v1 | 寫入/更新 Vault 筆記 + 索引 |
+| `edit_note` | v3.6 | 局部文字替換（old→new，不全覆蓋） |
+| `delete_note` | v3.5 | 刪除 .md 並移除 ChromaDB 向量 |
+| `rename_note` | v3.6 | 移動筆記 + 向量再索引 |
+| `list_notes` | v3.3 | 列出指定目錄下所有 .md |
+| `batch_write_notes` | v3.3 | 批次寫入多筆，單次索引 |
+| `grep_vault` | v3.6 | 精確文字 / 正規表達式搜尋 |
+
+### 排程生成工具（scheduler_tools.py）
+
+| Tool | 版本加入 | 說明 |
+|------|----------|------|
+| `generate_project_daily` | v3 | 專案每日進度模板（冪等） |
+| `generate_daily_review` | v3 | 每日總進度表（永遠覆寫） |
+| `generate_weekly_review` | v3 | 每週總進度表（永遠覆寫） |
+| `generate_monthly_review` | v3 | 每月總進度表（永遠覆寫） |
+| `log_ai_conversation` | v3 | 記錄 AI 對話 + 可選 detail 結構化紀錄 |
+| `generate_ai_weekly_analysis` | v3 | AI 對話週報分析模板 |
+| `generate_ai_monthly_analysis` | v3 | AI 對話月報分析模板 |
+| `generate_project_status` | v3.2 | status.md 模板生成（冪等） |
+| `list_scheduled_tasks` | v3.5 | 列出排程任務清單 |
+| `run_scheduled_task` | v3.5 | 手動觸發排程任務 |
+
+### 專案與知識管理（project_tools.py）
+
+| Tool | 版本加入 | 說明 |
+|------|----------|------|
+| `list_projects` | v3.2 | 列出所有組織及專案 |
+| `get_project_status` | v3.4 | status.md 結構化讀取 |
+| `extract_knowledge` | v3.5 | conversations/ → knowledge/ 萃取 |
+
+### Todo 管理（todo_tools.py）
+
+| Tool | 版本加入 | 說明 |
+|------|----------|------|
+| `update_todo` | v3.3 | todo checkbox toggle |
+| `add_todo` | v3.6 | 新增 todo 項目（指定 section） |
+| `remove_todo` | v3.6 | 整行刪除 todo 項目 |
+
+### 向量索引管理（index_tools.py）
+
+| Tool | 版本加入 | 說明 |
+|------|----------|------|
+| `check_vault_integrity` | v3.3 | 孤立向量偵測 |
+| `clean_orphans` | v3.6 | 外科手術清除孤立向量 |
+| `check_index_status` | v3.6 | 索引設定比對（是否需重建） |
+| `reindex_vault` | v3.6 | 清除並重建索引 |
+
+### Agent 與 Skill 管理（agent_tools.py）
+
+| Tool | 版本加入 | 說明 |
+|------|----------|------|
+| `list_agents` | v3.6 | 列出所有 Agent 模板 |
+| `dispatch_agent` | v3.6 | 載入指定 Agent 完整指令 |
+| `list_skills` | v3.6 | 列出 skills/ 知識包 |
+| `load_skill` | v3.6 | 讀取 Skill 知識包完整內容 |
+
+### 直覺記憶工具（instinct_tools.py）
+
+| Tool | 版本加入 | 說明 |
+|------|----------|------|
+| `create_instinct` | v3.6 | 建立直覺卡片 |
+| `update_instinct` | v3.6 | 更新信心度 / 新增證據 |
+| `search_instincts` | v3.6 | 語意搜尋直覺卡片 |
+| `list_instincts` | v3.6 | 列出所有卡片（依信心度排序） |
+| `generate_retrospective` | v3.6 | 月度復盤報告生成 |

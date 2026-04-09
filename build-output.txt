@@ -1,0 +1,280 @@
+254 INFO: PyInstaller: 6.19.0, contrib hooks: 2026.4
+255 INFO: Python: 3.12.9
+296 INFO: Platform: Windows-11-10.0.26200-SP0
+296 INFO: Python environment: D:\AI-Memory-Vault\AI_Engine\.venv
+1852 WARNING: Failed to collect submodules for 'chromadb.server.fastapi' because importing 'chromadb.server.fastapi' raised: ModuleNotFoundError: No module named 'opentelemetry.instrumentation'
+24848 INFO: Module search paths (PYTHONPATH):
+['D:\\AI-Memory-Vault\\AI_Engine\\packaging',
+ 'C:\\Users\\gabri\\AppData\\Local\\Programs\\Python\\Python312\\python312.zip',
+ 'C:\\Users\\gabri\\AppData\\Local\\Programs\\Python\\Python312\\DLLs',
+ 'C:\\Users\\gabri\\AppData\\Local\\Programs\\Python\\Python312\\Lib',
+ 'C:\\Users\\gabri\\AppData\\Local\\Programs\\Python\\Python312',
+ 'D:\\AI-Memory-Vault\\AI_Engine\\.venv',
+ 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages',
+ 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\win32',
+ 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\win32\\lib',
+ 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\Pythonwin',
+ 'D:\\AI-Memory-Vault\\AI_Engine']
+25582 INFO: Appending 'datas' from .spec
+25640 INFO: checking Analysis
+25640 INFO: Building Analysis because Analysis-00.toc is non existent
+25640 INFO: Looking for Python shared library...
+25640 INFO: Using Python shared library: C:\Users\gabri\AppData\Local\Programs\Python\Python312\python312.dll
+25640 INFO: Running Analysis Analysis-00.toc
+25641 INFO: Target bytecode optimization level: 0
+25641 INFO: Initializing module dependency graph...
+25643 INFO: Initializing module graph hook caches...
+25660 INFO: Analyzing modules for base_library.zip ...
+27751 INFO: Processing standard module hook 'hook-encodings.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+29709 INFO: Processing standard module hook 'hook-pickle.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+31005 INFO: Processing standard module hook 'hook-heapq.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+31434 INFO: Caching module dependency graph...
+31482 INFO: Analyzing D:\AI-Memory-Vault\AI_Engine\main.py
+31518 INFO: Processing pre-find-module-path hook 'hook-tkinter.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_find_module_path'
+31520 INFO: TclTkInfo: initializing cached Tcl/Tk info...
+31982 INFO: Processing standard module hook 'hook-_tkinter.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+32152 INFO: Processing standard module hook 'hook-pydantic.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+32880 INFO: Processing pre-safe-import-module hook 'hook-typing_extensions.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+32882 INFO: SetuptoolsInfo: initializing cached setuptools info...
+34232 INFO: Processing standard module hook 'hook-multiprocessing.util.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+34401 INFO: Processing standard module hook 'hook-xml.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+34642 INFO: Processing standard module hook 'hook-_ctypes.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+35419 INFO: Processing standard module hook 'hook-platform.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+35649 INFO: Processing standard module hook 'hook-rich.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+36674 INFO: Processing standard module hook 'hook-pygments.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+39568 INFO: Processing standard module hook 'hook-sysconfig.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+40071 INFO: Processing standard module hook 'hook-zoneinfo.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+41195 INFO: Processing pre-safe-import-module hook 'hook-packaging.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+41243 INFO: Processing standard module hook 'hook-urllib3.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+41358 INFO: Processing pre-safe-import-module hook 'hook-backports.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+41359 INFO: Setuptools: 'backports' appears to be a full setuptools-vendored copy - creating alias to 'setuptools._vendor.backports'!
+42032 INFO: Processing standard module hook 'hook-charset_normalizer.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+42167 INFO: Processing standard module hook 'hook-cryptography.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+44152 INFO: hook-cryptography: cryptography does not seem to be using dynamically linked OpenSSL.
+44455 INFO: Processing standard module hook 'hook-bcrypt.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+44489 INFO: Processing standard module hook 'hook-certifi.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+46152 INFO: Processing standard module hook 'hook-anyio.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+47820 INFO: Processing standard module hook 'hook-difflib.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+48312 INFO: Processing standard module hook 'hook-opentelemetry.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+48612 INFO: Processing pre-safe-import-module hook 'hook-importlib_metadata.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+48637 INFO: Processing standard module hook 'hook-importlib_metadata.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+48663 INFO: Processing pre-safe-import-module hook 'hook-zipp.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+49043 INFO: Processing pre-safe-import-module hook 'hook-importlib_resources.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+49045 INFO: Processing standard module hook 'hook-importlib_resources.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+49219 INFO: Processing standard module hook 'hook-langchain.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+57300 INFO: Processing standard module hook 'hook-orjson.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+57652 INFO: Processing standard module hook 'hook-jinja2.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+58146 INFO: Processing standard module hook 'hook-numpy.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+60477 INFO: Processing standard module hook 'hook-transformers.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+67203 INFO: Processing standard module hook 'hook-regex.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+67594 INFO: Processing standard module hook 'hook-sqlite3.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+70028 INFO: Processing standard module hook 'hook-torch.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+2297 WARNING: Failed to collect submodules for 'torch.utils.tensorboard' because importing 'torch.utils.tensorboard' raised: ModuleNotFoundError: No module named 'tensorboard'
+W0407 00:40:53.556000 17604 Lib\site-packages\torch\distributed\elastic\multiprocessing\redirects.py:29] NOTE: Redirects are currently not supported in Windows or MacOs.
+D:\AI-Memory-Vault\AI_Engine\.venv\Lib\site-packages\PyInstaller\utils\hooks\__init__.py:665: DeprecationWarning: `torch.distributed._sharding_spec` will be deprecated, use `torch.distributed._shard.sharding_spec` instead
+  __import__(name)
+D:\AI-Memory-Vault\AI_Engine\.venv\Lib\site-packages\PyInstaller\utils\hooks\__init__.py:665: DeprecationWarning: `torch.distributed._sharded_tensor` will be deprecated, use `torch.distributed._shard.sharded_tensor` instead
+  __import__(name)
+D:\AI-Memory-Vault\AI_Engine\.venv\Lib\site-packages\PyInstaller\utils\hooks\__init__.py:665: DeprecationWarning: `torch.distributed._shard.checkpoint` will be deprecated, use `torch.distributed.checkpoint` instead
+  __import__(name)
+85971 INFO: hook-torch: this torch build does not depend on MKL...
+88993 INFO: Processing standard module hook 'hook-py.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+89610 INFO: Processing pre-safe-import-module hook 'hook-tomli.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+89610 INFO: Setuptools: 'tomli' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.tomli'!
+100758 INFO: Processing standard module hook 'hook-xml.dom.domreg.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+106811 INFO: Processing pre-safe-import-module hook 'hook-win32com.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\pre_safe_import_module'
+107050 INFO: Processing standard module hook 'hook-win32com.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+107051 INFO: Processing standard module hook 'hook-pythoncom.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+107273 INFO: Processing standard module hook 'hook-pywintypes.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+110388 INFO: Processing standard module hook 'hook-xml.etree.cElementTree.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+116710 INFO: Processing standard module hook 'hook-fsspec.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+135123 INFO: Processing standard module hook 'hook-onnxruntime.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+135214 INFO: Processing pre-safe-import-module hook 'hook-tensorflow.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\pre_safe_import_module'
+136315 INFO: Processing standard module hook 'hook-jsonschema.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+136480 INFO: Processing standard module hook 'hook-jsonschema_specifications.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+137572 INFO: Processing standard module hook 'hook-pycparser.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+137744 INFO: Processing pre-safe-import-module hook 'hook-distutils.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+138293 INFO: Processing standard module hook 'hook-uvicorn.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+139180 INFO: Processing standard module hook 'hook-websockets.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+170477 INFO: Processing standard module hook 'hook-grpc.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+171581 INFO: Processing standard module hook 'hook-sqlalchemy.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+177374 INFO: Processing standard module hook 'hook-langchain_classic.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+189729 INFO: Processing standard module hook 'hook-apscheduler.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+191038 INFO: Processing standard module hook 'hook-wcwidth.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+192331 INFO: Analyzing hidden import 'chromadb.api.async_fastapi'
+192360 INFO: Analyzing hidden import 'chromadb.api.fastapi'
+192384 INFO: Analyzing hidden import 'chromadb.api.rust'
+192404 INFO: Analyzing hidden import 'chromadb.api.segment'
+192457 INFO: Analyzing hidden import 'chromadb.app'
+192529 INFO: Analyzing hidden import 'chromadb.auth.basic_authn'
+192535 INFO: Analyzing hidden import 'chromadb.auth.simple_rbac_authz'
+192539 INFO: Analyzing hidden import 'chromadb.cli'
+192539 INFO: Analyzing hidden import 'chromadb.cli.cli'
+192542 INFO: Analyzing hidden import 'chromadb.cli.utils'
+192545 INFO: Analyzing hidden import 'chromadb.db.base'
+192746 INFO: Analyzing hidden import 'chromadb.db.impl'
+192747 INFO: Analyzing hidden import 'chromadb.db.impl.sqlite'
+192855 INFO: Analyzing hidden import 'chromadb.migrations'
+192855 INFO: Analyzing hidden import 'chromadb.proto'
+192856 INFO: Analyzing hidden import 'chromadb.proto.convert'
+192882 INFO: Analyzing hidden import 'chromadb.proto.utils'
+192885 INFO: Analyzing hidden import 'chromadb.quota.simple_quota_enforcer'
+192889 INFO: Analyzing hidden import 'chromadb.rate_limit.simple_rate_limit'
+192891 INFO: Analyzing hidden import 'chromadb.segment.distributed'
+192895 INFO: Analyzing hidden import 'chromadb.segment.impl'
+192897 INFO: Analyzing hidden import 'chromadb.segment.impl.manager'
+192897 INFO: Analyzing hidden import 'chromadb.segment.impl.manager.cache'
+192898 INFO: Analyzing hidden import 'chromadb.segment.impl.manager.cache.cache'
+192905 INFO: Analyzing hidden import 'chromadb.segment.impl.manager.distributed'
+192915 INFO: Analyzing hidden import 'chromadb.segment.impl.manager.local'
+192982 INFO: Analyzing hidden import 'chromadb.telemetry.opentelemetry.grpc'
+192986 INFO: Analyzing hidden import 'chromadb.telemetry.product.posthog'
+192988 INFO: Analyzing hidden import 'chromadb.test'
+192989 INFO: Analyzing hidden import 'chromadb.test.client'
+192989 INFO: Analyzing hidden import 'chromadb.test.client.create_http_client_with_basic_auth'
+192992 INFO: Analyzing hidden import 'chromadb.test.client.test_cloud_client'
+193007 INFO: Analyzing hidden import 'chromadb.test.client.test_create_http_client'
+193008 INFO: Analyzing hidden import 'chromadb.test.client.test_database_tenant'
+193054 INFO: Analyzing hidden import 'chromadb.test.client.test_database_tenant_auth'
+193057 INFO: Analyzing hidden import 'chromadb.test.client.test_multiple_clients_concurrency'
+193061 INFO: Analyzing hidden import 'chromadb.test.test_api'
+193211 INFO: Analyzing hidden import 'chromadb.test.test_chroma'
+193215 INFO: Analyzing hidden import 'chromadb.test.test_cli'
+193385 INFO: Analyzing hidden import 'chromadb.test.test_client'
+193395 INFO: Analyzing hidden import 'chromadb.test.test_config'
+193402 INFO: Analyzing hidden import 'chromadb.test.test_multithreaded'
+193412 INFO: Analyzing hidden import 'chromadb.utils.data_loaders'
+193414 INFO: Analyzing hidden import 'chromadb.utils.delete_file'
+193416 INFO: Analyzing hidden import 'chromadb.utils.messageid'
+193417 INFO: Analyzing hidden import 'chromadb.utils.rendezvous_hash'
+193420 INFO: Analyzing hidden import 'chromadb.utils.results'
+193424 INFO: Analyzing hidden import 'chromadb.utils.statistics'
+193429 INFO: Analyzing hidden import 'sentence_transformers.cross_encoder.evaluation'
+193467 INFO: Analyzing hidden import 'sentence_transformers.readers.PairedFilesReader'
+193471 INFO: Analyzing hidden import 'sentence_transformers.sparse_encoder.evaluation'
+193532 INFO: Analyzing hidden import 'sentence_transformers.sparse_encoder.search_engines'
+193550 INFO: Analyzing hidden import 'mcp.cli'
+193568 INFO: Analyzing hidden import 'mcp.client.__main__'
+193573 INFO: Analyzing hidden import 'mcp.client.auth'
+193605 INFO: Analyzing hidden import 'mcp.client.auth.extensions'
+193606 INFO: Analyzing hidden import 'mcp.client.auth.extensions.client_credentials'
+193619 INFO: Analyzing hidden import 'mcp.client.websocket'
+193622 INFO: Analyzing hidden import 'mcp.server.__main__'
+193625 INFO: Analyzing hidden import 'mcp.server.websocket'
+193631 INFO: Analyzing hidden import 'mcp.shared.memory'
+193636 INFO: Analyzing hidden import 'mcp.shared.metadata_utils'
+193637 INFO: Analyzing hidden import 'mcp.shared.progress'
+193641 INFO: Analyzing hidden import 'huggingface_hub._hot_reload'
+193641 INFO: Analyzing hidden import 'huggingface_hub._hot_reload.client'
+193652 INFO: Analyzing hidden import 'huggingface_hub.cli._errors'
+193657 INFO: Analyzing hidden import 'huggingface_hub.cli.auth'
+193662 INFO: Analyzing hidden import 'huggingface_hub.cli.buckets'
+193689 INFO: Analyzing hidden import 'huggingface_hub.cli.cache'
+193717 INFO: Analyzing hidden import 'huggingface_hub.cli.collections'
+193725 INFO: Analyzing hidden import 'huggingface_hub.cli.datasets'
+193731 INFO: Analyzing hidden import 'huggingface_hub.cli.discussions'
+193747 INFO: Analyzing hidden import 'huggingface_hub.cli.download'
+193753 INFO: Analyzing hidden import 'huggingface_hub.cli.extensions'
+193792 INFO: Analyzing hidden import 'huggingface_hub.cli.hf'
+193937 INFO: Analyzing hidden import 'huggingface_hub.inference._mcp._cli_hacks'
+193939 INFO: Analyzing hidden import 'huggingface_hub.inference._mcp.cli'
+193950 INFO: Analyzing hidden import 'uvicorn.lifespan.off'
+193953 INFO: Analyzing hidden import 'uvicorn.lifespan.on'
+193961 INFO: Analyzing hidden import 'uvicorn.protocols.http.auto'
+193963 INFO: Analyzing hidden import 'uvicorn.protocols.websockets.auto'
+193965 INFO: Analyzing hidden import 'uvicorn.loops.asyncio'
+193967 INFO: Processing module hooks (post-graph stage)...
+195053 WARNING: Hidden import "pycparser.lextab" not found!
+195053 WARNING: Hidden import "pycparser.yacctab" not found!
+200178 WARNING: Hidden import "importlib_resources.trees" not found!
+202571 INFO: Processing standard module hook 'hook-sqlalchemy.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+203316 WARNING: Hidden import "pysqlite2" not found!
+203317 WARNING: Hidden import "MySQLdb" not found!
+203874 INFO: Processing standard module hook 'hook-_tkinter.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+203876 INFO: Processing standard module hook 'hook-tzdata.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+204897 INFO: Performing binary vs. data reclassification (2518 entries)
+205278 INFO: Looking for ctypes DLLs
+205407 WARNING: Ignoring /usr/lib64/libgomp.so.1 imported from D:\AI-Memory-Vault\AI_Engine\.venv\Lib\site-packages\torch\_inductor\codecache.py - only basenames are supported with ctypes imports!
+205841 INFO: Analyzing run-time hooks ...
+205904 INFO: Including run-time hook 'pyi_rth_inspect.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+205908 INFO: Including run-time hook 'pyi_rth_multiprocessing.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+205911 INFO: Including run-time hook 'pyi_rth_pkgutil.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+205915 INFO: Including run-time hook 'pyi_rth_cryptography_openssl.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\rthooks'
+205916 INFO: Including run-time hook 'pyi_rth_pywintypes.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\rthooks'
+205918 INFO: Including run-time hook 'pyi_rth_pythoncom.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\rthooks'
+205922 INFO: Including run-time hook 'pyi_rth__tkinter.py' from 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+206206 INFO: Creating base_library.zip...
+206241 INFO: Looking for dynamic libraries
+W0407 00:43:13.697000 12108 Lib\site-packages\torch\distributed\elastic\multiprocessing\redirects.py:29] NOTE: Redirects are currently not supported in Windows or MacOs.
+D:\AI-Memory-Vault\AI_Engine\.venv\Lib\site-packages\PyInstaller\building\build_main.py:227: DeprecationWarning: `torch.distributed._sharding_spec` will be deprecated, use `torch.distributed._shard.sharding_spec` instead
+  __import__(package)
+D:\AI-Memory-Vault\AI_Engine\.venv\Lib\site-packages\PyInstaller\building\build_main.py:227: DeprecationWarning: `torch.distributed._sharded_tensor` will be deprecated, use `torch.distributed._shard.sharded_tensor` instead
+  __import__(package)
+D:\AI-Memory-Vault\AI_Engine\.venv\Lib\site-packages\PyInstaller\building\build_main.py:227: DeprecationWarning: `torch.distributed._shard.checkpoint` will be deprecated, use `torch.distributed.checkpoint` instead
+  __import__(package)
+D:\AI-Memory-Vault\AI_Engine\.venv\Lib\site-packages\websockets\legacy\__init__.py:6: DeprecationWarning: websockets.legacy is deprecated; see https://websockets.readthedocs.io/en/stable/howto/upgrade.html for upgrade instructions
+  warnings.warn(  # deprecated in 14.0 - 2024-11-09
+D:\AI-Memory-Vault\AI_Engine\.venv\Lib\site-packages\langchain_community\tools\edenai\audio_speech_to_text.py:50: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+  @validator("providers")
+D:\AI-Memory-Vault\AI_Engine\.venv\Lib\site-packages\langchain_community\tools\edenai\audio_text_to_speech.py:59: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+  @validator("providers")
+D:\AI-Memory-Vault\AI_Engine\.venv\Lib\site-packages\PyInstaller\building\build_main.py:227: PendingDeprecationWarning: Please use `import python_multipart` instead.
+  __import__(package)
+230191 INFO: Extra DLL search directories (AddDllDirectory): ['D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\numpy.libs', 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\torch\\lib', 'D:\\AI-Memory-Vault\\AI_Engine\\.venv\\Lib\\site-packages\\scipy.libs']
+230191 INFO: Extra DLL search directories (PATH): []
+232961 INFO: Warnings written to D:\AI-Memory-Vault\AI_Engine\build\build\warn-build.txt
+234162 INFO: Graph cross-reference written to D:\AI-Memory-Vault\AI_Engine\build\build\xref-build.html
+234556 INFO: checking PYZ
+234557 INFO: Building PYZ because PYZ-00.toc is non existent
+234557 INFO: Building PYZ (ZlibArchive) D:\AI-Memory-Vault\AI_Engine\build\build\PYZ-00.pyz
+242073 INFO: Building PYZ (ZlibArchive) D:\AI-Memory-Vault\AI_Engine\build\build\PYZ-00.pyz completed successfully.
+242275 INFO: checking PKG
+242275 INFO: Building PKG because PKG-00.toc is non existent
+242275 INFO: Building PKG (CArchive) vault-cli.pkg
+242387 INFO: Building PKG (CArchive) vault-cli.pkg completed successfully.
+242389 INFO: Bootloader D:\AI-Memory-Vault\AI_Engine\.venv\Lib\site-packages\PyInstaller\bootloader\Windows-64bit-intel\run.exe
+242389 INFO: checking EXE
+242389 INFO: Building EXE because EXE-00.toc is non existent
+242389 INFO: Building EXE from EXE-00.toc
+242389 INFO: Copying bootloader EXE to D:\AI-Memory-Vault\AI_Engine\build\build\vault-cli.exe
+242457 INFO: Copying icon to EXE
+242523 INFO: Copying 0 resources to EXE
+242523 INFO: Embedding manifest in EXE
+242589 INFO: Appending PKG archive to EXE
+242661 INFO: Fixing EXE headers
+243349 INFO: Building EXE from EXE-00.toc completed successfully.
+243352 INFO: checking PKG
+243353 INFO: Building PKG because PKG-01.toc is non existent
+243353 INFO: Building PKG (CArchive) vault-mcp.pkg
+243460 INFO: Building PKG (CArchive) vault-mcp.pkg completed successfully.
+243461 INFO: Bootloader D:\AI-Memory-Vault\AI_Engine\.venv\Lib\site-packages\PyInstaller\bootloader\Windows-64bit-intel\runw.exe
+243461 INFO: checking EXE
+243462 INFO: Building EXE because EXE-01.toc is non existent
+243462 INFO: Building EXE from EXE-01.toc
+243462 INFO: Copying bootloader EXE to D:\AI-Memory-Vault\AI_Engine\build\build\vault-mcp.exe
+243514 INFO: Copying icon to EXE
+243575 INFO: Copying 0 resources to EXE
+243575 INFO: Embedding manifest in EXE
+243580 INFO: Appending PKG archive to EXE
+243655 INFO: Fixing EXE headers
+249968 INFO: Building EXE from EXE-01.toc completed successfully.
+249974 INFO: checking PKG
+249974 INFO: Building PKG because PKG-02.toc is non existent
+249974 INFO: Building PKG (CArchive) vault-scheduler.pkg
+250109 INFO: Building PKG (CArchive) vault-scheduler.pkg completed successfully.
+250110 INFO: Bootloader D:\AI-Memory-Vault\AI_Engine\.venv\Lib\site-packages\PyInstaller\bootloader\Windows-64bit-intel\run.exe
+250110 INFO: checking EXE
+250111 INFO: Building EXE because EXE-02.toc is non existent
+250111 INFO: Building EXE from EXE-02.toc
+250111 INFO: Copying bootloader EXE to D:\AI-Memory-Vault\AI_Engine\build\build\vault-scheduler.exe
+250181 INFO: Copying icon to EXE
+250231 INFO: Copying 0 resources to EXE
+250231 INFO: Embedding manifest in EXE
+250284 INFO: Appending PKG archive to EXE
+250347 INFO: Fixing EXE headers
+251013 INFO: Building EXE from EXE-02.toc completed successfully.
+251300 INFO: checking COLLECT
+251300 INFO: Building COLLECT because COLLECT-00.toc is non existent
+251301 INFO: Building COLLECT COLLECT-00.toc
+262703 INFO: Building COLLECT COLLECT-00.toc completed successfully.
+262896 INFO: Build complete! The results are available in: D:\AI-Memory-Vault\AI_Engine\dist

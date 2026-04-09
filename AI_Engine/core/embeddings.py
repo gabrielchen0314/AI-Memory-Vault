@@ -8,8 +8,6 @@
 @date 2026.04.01
 """
 from functools import lru_cache
-from langchain_huggingface import HuggingFaceEmbeddings
-
 
 # ── 模組級快取（延遲載入，由 initialize() 設定模型名稱）────
 _g_ModelName: str = "paraphrase-multilingual-MiniLM-L12-v2"
@@ -29,6 +27,8 @@ def initialize( iModelName: str ) -> None:
 
 
 @lru_cache( maxsize=1 )
-def get_embeddings() -> HuggingFaceEmbeddings:
+def get_embeddings():
     """取得多語言向量嵌入模型（單例，首次呼叫時初始化）。"""
+    # 延遲載入：避免 frozen exe 在 import 階段就觸發 sentence_transformers/torch DLL 載入
+    from langchain_huggingface import HuggingFaceEmbeddings
     return HuggingFaceEmbeddings( model_name=_g_ModelName )

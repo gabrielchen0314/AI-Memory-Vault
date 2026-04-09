@@ -1,7 +1,7 @@
 ---
 type: system
 created: 2026.04.01
-last_updated: 2026.04.04
+last_updated: 2026.04.09
 inject: true
 ---
 
@@ -18,6 +18,7 @@ inject: true
 | `personal/` | 個人空間（日記/學習/目標/靈感/總進度） |
 | `personal/reviews/daily/` | 每日總進度表（所有專案摘要） |
 | `personal/ai-analysis/` | AI 對話週報與月報分析 |
+| `personal/instincts/` | AI 直覺卡片（自主學習管道） |
 | `knowledge/` | 永久知識卡片（概念萃取） |
 | `templates/` | 模板系統 |
 | `attachments/` | 附件存放 |
@@ -48,6 +49,8 @@ workspaces/{organization}/
 | 每月總結  | `personal/reviews/monthly/`            | 當月進度彙整         |
 | AI 週報 | `personal/ai-analysis/weekly/`         | 對話準確率、Token 分析 |
 | AI 月報 | `personal/ai-analysis/monthly/`        | 趨勢、優化、評分       |
+| 直覺卡片  | `personal/instincts/`                  | AI 自主學習直覺規則    |
+| 月度復盤  | `personal/reviews/monthly/*-retrospective.md` | 月度復盤報告（含直覺系統分析） |
 
 ## _config/ 系統檔說明
 

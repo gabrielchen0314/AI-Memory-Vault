@@ -1,7 +1,7 @@
 ---
 type: system
 created: 2026.04.04
-last_updated: 2026.04.04
+last_updated: 2026.04.09
 inject: true
 ---
 
@@ -19,10 +19,14 @@ inject: true
 - **內容**：今日完成、遇到的問題、明日計畫、學到的事
 - 每個有實作的專案各寫一份
 
-### 2. 對話紀錄（必須）
-- **路徑**：`workspaces/{org}/projects/{project}/conversations/YYYY-MM-DD-{session}.md`
-- **內容**：對話主題、關鍵決策、問題與解法、修改的檔案清單
+### 2. 對話紀錄 — 摘要 + 詳細（必須）
+- **工具**：`log_ai_conversation(..., detail={...})`
+- **摘要路徑**：`workspaces/{org}/projects/{project}/conversations/YYYY-MM-DD_{session}.md`
+- **詳細路徑**：`workspaces/{org}/projects/{project}/conversations/YYYY-MM-DD_{session}-detail.md`（自動生成）
+- `content` 參數放簡短摘要；`detail` 參數放結構化詳細紀錄
+- AI 從 conversation summary 自動萃取 detail 內容，不需用戶手動輸入
 - 一次對話一份，多次對話分開記錄
+- **此格式為全域共用**，適用所有組織與所有專案
 
 ### 3. 每日總回顧（必須）
 - **路徑**：`personal/reviews/daily/YYYY-MM-DD.md`
@@ -32,7 +36,7 @@ inject: true
 ### 4. 專案狀態更新（必須）
 - **路徑**：`workspaces/{org}/projects/{project}/status.md`
 - **內容**：工作脈絡更新 + 待辦事項(進行中/待處理/已完成) + 重要決策
-- **每個有動過的專案各更新一份**（取代舊的全域 todos.md + handoff.md）
+- **每個有動過的專案各更新一份**
 
 ### 5. 交接索引更新（必須）
 - **路徑**：`_config/handoff.md`
@@ -55,7 +59,7 @@ inject: true
 
 ```
 1 → 專案日報（每個活躍專案）
-2 → 對話紀錄
+2 → 對話紀錄（log_ai_conversation + detail，一次呼叫完成摘要+詳細）
 3 → 知識卡片（有東西才寫）
 4 → 各活躍專案的 status.md 更新
 5 → _config/handoff.md 索引更新
@@ -66,4 +70,5 @@ inject: true
 
 - 所有寫入透過 `write_note` MCP 工具，自動索引至向量資料庫
 - `status.md` = 舊 `todos.md` + 舊 `handoff.md` 合一，不再有全域 todos
+- `log_ai_conversation` 的 `detail` 參數合併了方案 A（強化工具）+ 方案 B（conversation summary 萃取）
 - 此清單本身不需每次更新，除非流程有調整
