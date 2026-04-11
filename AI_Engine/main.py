@@ -5,7 +5,7 @@ AI Memory Vault v3 — 入口程式
 用法：
     python main.py                          → 啟動 Setup Wizard（首次）或 CLI 模式
     python main.py --mode cli               → CLI 互動模式
-    python main.py --mode api               → FastAPI 伺服器
+    python main.py --mode api               → MCP SSE 伺服器（HTTP 長連線，供 Web UI 連線）
     python main.py --mode mcp               → MCP stdio 伺服器
     python main.py --scheduler              → 啟動 APScheduler 守護模式（週/月/日自動生成）
     python main.py --reindex                → 清除向量索引並重建（嵌入模型/chunk設定變更後使用）
@@ -23,7 +23,100 @@ AI Memory Vault v3 — 入口程式
 import argparse
 import sys
 import os
+import multiprocessing
 from pathlib import Path
+
+# ── PyInstaller 凍結模式：freeze_support() 必須在最頂層呼叫，防止 multiprocessing spawn 遞迴崩潰 ──
+if getattr( sys, 'frozen', False ):
+    multiprocessing.freeze_support()
+
+# ── frozen exe：torch stub 注入 ──────────────────────────────────────────
+# torch 2.x 在 PyInstaller 凍結環境中 import 會觸發 STATUS_STACK_BUFFER_OVERRUN（0xC0000409），
+# 但 transformers / langchain_classic 等套件的 import 鏈會間接 import torch。
+# 解法：在任何第三方套件 import 前，將 torch stub 注入 sys.modules，攔截真正的 torch 載入。
+# 嵌入模型改用 OnnxEmbeddings（onnxruntime + tokenizers 直接推理，完全不需要 torch）。
+if getattr( sys, 'frozen', False ):
+    import types as _types
+    from importlib.machinery import ModuleSpec as _ModSpec
+
+    class _FakeDtype:
+        def __repr__( self ): return "<FakeDtype>"
+        def __hash__( self ): return id( self )
+        def __call__( self, *a, **kw ): return False
+
+    class _FakeTensor: pass
+
+    class _TorchStub( _types.ModuleType ):
+        def __getattr__( self, name ):
+            _Full = f"{self.__name__}.{name}"
+            if _Full in sys.modules:
+                return sys.modules[_Full]
+            return _FakeDtype()
+
+    def _make_sub( iName ):
+        _S = _TorchStub( iName )
+        _S.__spec__ = _ModSpec( iName, None, origin="<frozen-stub>" )
+        _S.__path__ = []
+        return _S
+
+    _t = _TorchStub( "torch" )
+    _t.__version__ = "2.11.0"
+    _t.__file__    = "<frozen-stub>"
+    _t.__path__    = []
+    _t.__spec__    = _ModSpec( "torch", None, origin="<frozen-stub>" )
+    _t.Tensor         = _FakeTensor
+    _t.device         = lambda *a, **kw: None
+    _t.dtype          = _FakeDtype
+    _t.no_grad        = lambda: type( "ctx", (), { "__enter__": lambda s: s, "__exit__": lambda s, *a: None } )()
+    _t.inference_mode = _t.no_grad
+    _t.is_tensor      = lambda x: False
+
+    _nn            = _make_sub( "torch.nn" )
+    _nn.Module     = type( "Module", (), {} )
+    _nn.Parameter  = type( "Parameter", ( _FakeTensor, ), {} )
+    _nn.functional = _make_sub( "torch.nn.functional" )
+
+    _cuda                = _make_sub( "torch.cuda" )
+    _cuda.is_available   = lambda: False
+    _cuda.device_count   = lambda: 0
+    _cuda.current_device = lambda: 0
+
+    _dist              = _make_sub( "torch.distributed" )
+    _dist.is_available = lambda: False
+    _dist.is_initialized = lambda: False
+
+    _utils         = _make_sub( "torch.utils" )
+    _pytree                     = _make_sub( "torch.utils._pytree" )
+    _pytree.Context             = type( "Context", (), {} )
+    _pytree.register_pytree_node = lambda *a, **kw: None
+    _utils._pytree = _pytree
+    _data          = _make_sub( "torch.utils.data" )
+    _utils.data    = _data
+
+    sys.modules.update( {
+        "torch":          _t,
+        "torch.nn":       _nn,
+        "torch.nn.functional": _nn.functional,
+        "torch.cuda":     _cuda,
+        "torch.amp":      _make_sub( "torch.amp" ),
+        "torch.utils":    _utils,
+        "torch.utils._pytree": _pytree,
+        "torch.utils.data":    _data,
+        "torch.distributed":   _dist,
+        "torch.distributed.elastic": _make_sub( "torch.distributed.elastic" ),
+        "torch.distributed.elastic.multiprocessing": _make_sub( "torch.distributed.elastic.multiprocessing" ),
+    } )
+
+    # _FakeDtype / _FakeTensor 不可 del：_TorchStub.__getattr__ 在運行時仍需存取
+    del _types, _ModSpec, _TorchStub
+    del _make_sub, _t, _nn, _cuda, _dist, _utils, _pytree, _data
+
+# ── frozen exe：停用 HuggingFace tokenizers / OpenMP / MKL 並行，防止 Rust rayon 在凍結環境崩潰 ──
+# STATUS_STACK_BUFFER_OVERRUN（0xC0000409）的常見來源之一：tokenizers 在凍結 exe 中初始化 rayon 執行緒池
+if getattr( sys, 'frozen', False ):
+    os.environ.setdefault( 'TOKENIZERS_PARALLELISM', 'false' )
+    os.environ.setdefault( 'OMP_NUM_THREADS',         '1'     )
+    os.environ.setdefault( 'MKL_NUM_THREADS',         '1'     )
 
 # ── 凍結模式：強制 stdout/stderr 使用 UTF-8，避免 Windows codepage 導致 crash ──
 if getattr( sys, 'frozen', False ):
@@ -32,6 +125,11 @@ if getattr( sys, 'frozen', False ):
         sys.stderr.reconfigure( encoding='utf-8', errors='replace' )
     except Exception:
         pass
+
+# ── faulthandler：捕捉 C-level 崩潰的堆疊追蹤（SIGSEGV 等）──
+if getattr( sys, 'frozen', False ):
+    import faulthandler
+    faulthandler.enable( file=sys.stderr )
 
 # 確保 AI_Engine 目錄在 sys.path 中
 # PyInstaller frozen 模式：__file__ 指向 bundle 內部，改用 sys.executable 所在目錄
@@ -306,10 +404,11 @@ def main():
     # ── 正常啟動 ──────────────────────────────────────────
     _Config = ConfigManager.load()
 
-    # MCP stdio 模式：bootstrap 期間同時封鎖 Python 層（sys.stdout）
-    # 和 fd 層（fd 1），防止 C 擴展汙染 JSON-RPC 通道。
-    # bootstrap 結束後兩層都必須還原，FastMCP 用 sys.stdout 寫回應。
-    if _Args.mode == "mcp":
+    # MCP stdio 模式：bootstrap 期間封鎖 stdout，防止 C 擴展汙染 JSON-RPC 通道。
+    # frozen exe 完全跳過重導向（避免觸發 C runtime 的 STATUS_STACK_BUFFER_OVERRUN）
+    _SavedFd1 = None
+    _RealStdout = None
+    if _Args.mode == "mcp" and not getattr( sys, 'frozen', False ):
         _RealStdout = sys.stdout
         sys.stdout = sys.stderr
         _SavedFd1 = os.dup( 1 )
@@ -320,10 +419,11 @@ def main():
     if _Args.mode == "api":
         _start_api( _Config )
     elif _Args.mode == "mcp":
-        # 還原 fd 1 + sys.stdout → FastMCP stdio transport 需要兩層都正常
-        os.dup2( _SavedFd1, 1 )
-        os.close( _SavedFd1 )
-        sys.stdout = _RealStdout
+        if _SavedFd1 is not None:
+            os.dup2( _SavedFd1, 1 )
+            os.close( _SavedFd1 )
+        if _RealStdout is not None:
+            sys.stdout = _RealStdout
         _start_mcp()
     else:
         _start_cli( _Config, getattr( _Args, "menu", False ) )
@@ -406,6 +506,7 @@ def _start_scheduler_task( iTaskId: str, iHeadless: bool = False ):
     print( "" )
 
     _Config  = ConfigManager.load()
+    _bootstrap( _Config )
     _Sched   = AutoScheduler( _Config )
     _Results = _Sched.run_task( iTaskId )
 
@@ -488,6 +589,7 @@ def _start_scheduler_once( iDailyOnly: bool = False, iHeadless: bool = False ):
     print( "" )
 
     _Config  = ConfigManager.load()
+    _bootstrap( _Config )
     _Sched   = AutoScheduler( _Config )
     _Results = _Sched.run_once( daily_only=iDailyOnly )
 
@@ -548,6 +650,7 @@ def _start_scheduler():
     print( f"[Scheduler] Log 路徑：{_LogPath}" )
 
     _Config = ConfigManager.load()
+    _bootstrap( _Config )
     _Sched  = AutoScheduler( _Config )
     _Sched.start()
     _Sched.block()
@@ -618,8 +721,12 @@ def _start_cli( iConfig, iMenu: bool = False ):
 
 
 def _start_api( iConfig ):
-    """啟動 FastAPI 伺服器。"""
-    print( "🔧 API 模式尚未實作（V3 Phase 2）" )
+    """啟動 MCP SSE 伺服器（HTTP 模式，供 Web UI / 外部客戶端透過 SSE 連線）。"""
+    from mcp_app.server import run_mcp_sse_server
+    _Host = os.environ.get( "VAULT_HOST", "127.0.0.1" )
+    _Port = int( os.environ.get( "VAULT_PORT", "8765" ) )
+    print( f"🚀 啟動 MCP SSE 伺服器：http://{_Host}:{_Port}" )
+    run_mcp_sse_server( iHost=_Host, iPort=_Port )
 
 
 def _start_mcp():

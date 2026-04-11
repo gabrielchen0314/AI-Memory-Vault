@@ -97,11 +97,22 @@ function Get-Tasks
     return @( $Json.tasks )
 }
 
-## <summary>將排程陣列寫回 tasks.json。</summary>
+## <summary>將排程陣列寫回 tasks.json（含 format_version，供版本升級檢查）。</summary>
 function Save-Tasks( [array]$iTasks )
 {
-    $Obj = [PSCustomObject]@{ tasks = $iTasks }
+    $Obj = [PSCustomObject]@{ format_version = "3.7"; tasks = $iTasks }
     $Obj | ConvertTo-Json -Depth 5 | Set-Content $TasksJson -Encoding UTF8
+}
+
+## <summary>偵測 Windows 工作排程器中存在但 tasks.json 未管理的孤兒排程。</summary>
+function Get-OrphanedWinTasks( [array]$iManagedTasks )
+{
+    # 找所有名稱包含 'AI-Memory' 或 'AI-MemoryVault' 的 Windows 任務
+    $AllVaultTasks = Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {
+        $_.TaskName -match 'AI.?Memory'
+    }
+    $ManagedNames  = $iManagedTasks | ForEach-Object { Get-WinTaskName $_.name }
+    return $AllVaultTasks | Where-Object { $ManagedNames -notcontains $_.TaskName }
 }
 
 ## <summary>組合 Windows 工作排程器任務名稱。</summary>
@@ -223,6 +234,22 @@ if( $List )
         $WinTask = Get-ScheduledTask -TaskName (Get-WinTaskName $_T.name) -ErrorAction SilentlyContinue
         $Status  = if( $WinTask ) { "✅ 已註冊  State=$($WinTask.State)" } else { "❌ 未註冊（請執行 -Apply）" }
         Write-Host "  $(Get-WinTaskName $_T.name) → $Status"
+    }
+
+    # ── 孤兒排程偵測（在 Windows 中存在但 tasks.json 中沒有管理）──
+    $Orphans = @( Get-OrphanedWinTasks $_Tasks )
+    if( $Orphans.Count -gt 0 )
+    {
+        Write-Host "`n⚠️  偵測到孤兒排程（Windows 中存在，但 tasks.json 未管理）：" -ForegroundColor Yellow
+        foreach( $Orphan in $Orphans )
+        {
+            $Info = $Orphan | Get-ScheduledTaskInfo -ErrorAction SilentlyContinue
+            $LastRun = if( $Info ) { $Info.LastRunTime.ToString('yyyy/MM/dd HH:mm') } else { '?' }
+            $LastResult = if( $Info ) { '0x{0:X}' -f $Info.LastTaskResult } else { '?' }
+            Write-Host "  ⛔ $($Orphan.TaskName) | 上次執行：$LastRun | 結果：$LastResult" -ForegroundColor Yellow
+        }
+        Write-Host "   → 若不需要，可手動刪除：Unregister-ScheduledTask -TaskName '<名稱>' -Confirm:`$false" -ForegroundColor DarkYellow
+        Write-Host "   → 若需要，請執行 -Add 重新加入 tasks.json 管理" -ForegroundColor DarkYellow
     }
     Write-Host ""
     exit 0

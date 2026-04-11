@@ -1,0 +1,46 @@
+# ── AI Memory Vault — Docker Compose ───────────────────────
+# 同時啟動 MCP SSE 伺服器和排程器。
+#
+# 用法：
+#   docker compose up -d       → 背景啟動全部服務
+#   docker compose up mcp-sse  → 僅 MCP SSE
+#   docker compose logs -f     → 查看即時日誌
+# ────────────────────────────────────────────────────────────
+
+services:
+  mcp-sse:
+    build:
+      context: .
+      dockerfile: AI_Engine/Dockerfile
+    container_name: vault-mcp-sse
+    ports:
+      - "${VAULT_PORT:-8765}:8765"
+    volumes:
+      - vault-data:/vault
+      - engine-data:/data
+    environment:
+      - VAULT_HOST=0.0.0.0
+      - VAULT_PORT=8765
+      - VAULT_DATA_DIR=/data
+    restart: unless-stopped
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: AI_Engine/Dockerfile
+    container_name: vault-scheduler
+    command: ["python", "main.py", "--scheduler"]
+    volumes:
+      - vault-data:/vault
+      - engine-data:/data
+    environment:
+      - VAULT_DATA_DIR=/data
+    restart: unless-stopped
+    depends_on:
+      - mcp-sse
+
+volumes:
+  vault-data:
+    driver: local
+  engine-data:
+    driver: local

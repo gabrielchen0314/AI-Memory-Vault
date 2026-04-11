@@ -83,38 +83,28 @@ class AgentRouter:
         with open( iPath, "r", encoding="utf-8" ) as _F:
             _Raw = _F.read()
 
-        if not _Raw.startswith( "---" ):
+        from core.frontmatter import parse as parse_fm
+        _FmDict, _Body = parse_fm( _Raw )
+        _Body = _Body.strip()
+
+        if not _FmDict or _FmDict.get( "type" ) != "agent-template":
             return None
-        _End = _Raw.find( "---", 3 )
-        if _End == -1:
-            return None
 
-        _Fm = _Raw[3:_End]
-        _Body = _Raw[_End + 3:].strip()
-
-        # 簡易 YAML 解析（避免引入 pyyaml 依賴）
-        def _get( key: str, default="" ) -> str:
-            _M = re.search( rf'^{key}:\s*["\']?(.+?)["\']?\s*$', _Fm, re.MULTILINE )
-            return _M.group( 1 ).strip() if _M else default
-
-        def _get_list( key: str ) -> list:
-            _M = re.search( rf'^{key}:\s*\[(.+?)\]', _Fm, re.MULTILINE )
-            if not _M:
-                return []
-            return [ _Item.strip().strip( "\"'" ) for _Item in _M.group( 1 ).split( "," ) ]
-
-        _Type = _get( "type" )
-        if _Type != "agent-template":
-            return None
+        def _to_list( val ) -> list:
+            if isinstance( val, list ):
+                return [ str( x ).strip() for x in val ]
+            if isinstance( val, str ):
+                return [ x.strip().strip( "\"'" ) for x in val.split( "," ) if x.strip() ]
+            return []
 
         return AgentTemplate(
-            name=_get( "agent", os.path.splitext( os.path.basename( iPath ) )[0] ),
-            trigger=_get( "trigger" ),
-            domain=_get( "domain" ),
-            summary=_get( "ai_summary" ),
-            mcp_tools=_get_list( "mcp_tools" ),
-            related_rules=_get_list( "related_rules" ),
-            workspace=_get( "workspace", "_shared" ),
+            name=str( _FmDict.get( "agent", os.path.splitext( os.path.basename( iPath ) )[0] ) ),
+            trigger=str( _FmDict.get( "trigger", "" ) ),
+            domain=str( _FmDict.get( "domain", "" ) ),
+            summary=str( _FmDict.get( "ai_summary", "" ) ),
+            mcp_tools=_to_list( _FmDict.get( "mcp_tools", [] ) ),
+            related_rules=_to_list( _FmDict.get( "related_rules", [] ) ),
+            workspace=str( _FmDict.get( "workspace", "_shared" ) ),
             body=_Body,
             file_path=iPath,
         )

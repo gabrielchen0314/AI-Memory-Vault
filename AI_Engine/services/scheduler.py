@@ -24,6 +24,10 @@ import sys
 from datetime import datetime, timedelta
 from typing import Optional
 
+from core.logger import get_logger
+
+_logger = get_logger( __name__ )
+
 from config import AppConfig
 
 
@@ -290,6 +294,9 @@ class SchedulerService:
             )
             self._sync_write( _DetailRelPath, _DetailContent )
 
+            # ── 自動 Instinct 學習管道 ──────────────────────
+            self._auto_learn_instincts( iDetail, iOrg, iProject )
+
         return _RelPath
 
     def generate_ai_weekly_analysis( self, iDate: Optional[str] = None ) -> str:
@@ -324,10 +331,12 @@ class SchedulerService:
 
         # 掃描所有專案的 conversations
         _ProjectConvs = self._scan_all_project_conversations( _WeekStart, _WeekEnd )
-        _TokenStats = self._compute_token_stats( _ProjectConvs )
+        _TokenStats   = self._compute_token_stats( _ProjectConvs )
+        _DetailMap    = self._parse_all_conversation_details( _ProjectConvs )
+        _Metrics      = self._compute_analysis_metrics( _DetailMap, _TokenStats )
 
         _Content = self._render_ai_weekly_analysis_template(
-            _Year, _Week, _WeekStart, _WeekEnd, _ProjectConvs, _TokenStats
+            _Year, _Week, _WeekStart, _WeekEnd, _ProjectConvs, _TokenStats, _Metrics
         )
         self._sync_write( _RelPath, _Content )
         return _RelPath
@@ -369,9 +378,11 @@ class SchedulerService:
                 if _F.startswith( _YearMonth[:4] ) and _F.endswith( ".md" ):
                     _WeeklyReports.append( _F )
 
-        _TokenStats = self._compute_token_stats( _ProjectConvs )
+        _TokenStats   = self._compute_token_stats( _ProjectConvs )
+        _DetailMap    = self._parse_all_conversation_details( _ProjectConvs )
+        _Metrics      = self._compute_analysis_metrics( _DetailMap, _TokenStats )
         _Content = self._render_ai_monthly_analysis_template(
-            _YearMonth, _ProjectConvs, _WeeklyReports, _TokenStats
+            _YearMonth, _ProjectConvs, _WeeklyReports, _TokenStats, _Metrics
         )
         self._sync_write( _RelPath, _Content )
         return _RelPath
@@ -733,37 +744,435 @@ target: {iTargetPath}
 
         return _Stats
 
+    def _parse_all_conversation_details( self, iProjectConvs: dict ) -> dict:
+        """
+        解析所有 detail 檔案，萃取結構化資料。
+
+        Args:
+            iProjectConvs: { "{org}/{project}": [filename, ...], ... }
+
+        Returns:
+            {
+                "{org}/{project}": [
+                    {
+                        "session":            str,
+                        "qa_count":           int,
+                        "problems":           [{ problem, cause, solution }],
+                        "learnings":          [str],
+                        "interaction_issues": [{ type, description }],
+                        "tokens":             int,
+                    },
+                    ...
+                ],
+                ...
+            }
+        """
+        from services.token_counter import TokenCounter
+        _P      = self.m_Config.paths
+        _Result = {}
+
+        for _Key, _Files in iProjectConvs.items():
+            _Parts   = _Key.split( "/", 1 )
+            _Org     = _Parts[0]
+            _Proj    = _Parts[1] if len( _Parts ) > 1 else ""
+            _ConvDir = os.path.join( self.m_VaultRoot, _P.project_conversations_dir( _Org, _Proj ) )
+            _Details = []
+
+            for _F in _Files:
+                # 只處理非 detail 的主檔，再去找同名 detail
+                if _F.endswith( "-detail.md" ):
+                    continue
+
+                _Session = _F[11:].replace( ".md", "" )  # 去掉 YYYY-MM-DD_ 和 .md
+                _MainTokens  = TokenCounter.count_file( os.path.join( _ConvDir, _F ) )
+                _DetailFname = _F.replace( ".md", "-detail.md" )
+                _DetailPath  = os.path.join( _ConvDir, _DetailFname )
+
+                _Entry = {
+                    "session":            _Session,
+                    "qa_count":           0,
+                    "problems":           [],
+                    "learnings":          [],
+                    "interaction_issues": [],
+                    "tokens":             _MainTokens,
+                }
+
+                if os.path.exists( _DetailPath ):
+                    _Entry["tokens"] += TokenCounter.count_file( _DetailPath )
+                    self._extract_detail_data( _DetailPath, _Entry )
+
+                _Details.append( _Entry )
+
+            if _Details:
+                _Result[_Key] = _Details
+
+        return _Result
+
+    def _extract_detail_data( self, iDetailPath: str, oEntry: dict ) -> None:
+        """
+        從 detail .md 檔中解析問答數、problems、learnings、interaction_issues。
+        使用 Markdown 結構（標題 + 表格 + 列表）解析，不依賴 frontmatter。
+
+        Args:
+            iDetailPath: detail 檔案的絕對路徑。
+            oEntry:      輸出 dict（直接修改）。
+        """
+        try:
+            with open( iDetailPath, "r", encoding="utf-8" ) as _F:
+                _Lines = _F.readlines()
+        except OSError:
+            return
+
+        _Section  = ""
+        _QaCount  = 0
+
+        for _Line in _Lines:
+            _Stripped = _Line.strip()
+
+            # 追蹤當前 section（## 標題）
+            if _Stripped.startswith( "## " ):
+                _Section = _Stripped[3:].strip().lower()
+                continue
+            if _Stripped.startswith( "### " ):
+                # ### Q1: ... → 計算問答數
+                if _Stripped.startswith( "### Q" ) and ":" in _Stripped:
+                    _QaCount += 1
+                continue
+
+            # 「學到的知識」列表
+            if "學到" in _Section and _Stripped.startswith( "- " ):
+                _Text = _Stripped[2:].strip()
+                if _Text:
+                    oEntry["learnings"].append( _Text )
+                continue
+
+            # 「遇到的問題」表格行（| problem | cause | solution |）
+            if "問題" in _Section and _Stripped.startswith( "| " ) and not _Stripped.startswith( "| 問題" ) and not _Stripped.startswith( "|---" ):
+                _Cols = [ _C.strip() for _C in _Stripped.strip( "| " ).split( "|" ) ]
+                if len( _Cols ) >= 3 and _Cols[0]:
+                    oEntry["problems"].append( {
+                        "problem":  _Cols[0].strip(),
+                        "cause":    _Cols[1].strip() if len( _Cols ) > 1 else "",
+                        "solution": _Cols[2].strip() if len( _Cols ) > 2 else "",
+                    } )
+                continue
+
+            # interaction_issues 表格行（如未來 detail 加入此表格）
+            if "interaction" in _Section.lower() and _Stripped.startswith( "| " ) and not _Stripped.startswith( "| type" ) and not _Stripped.startswith( "|---" ):
+                _Cols = [ _C.strip() for _C in _Stripped.strip( "| " ).split( "|" ) ]
+                if len( _Cols ) >= 2 and _Cols[0]:
+                    oEntry["interaction_issues"].append( {
+                        "type":        _Cols[0].strip(),
+                        "description": _Cols[1].strip() if len( _Cols ) > 1 else "",
+                    } )
+                continue
+
+        oEntry["qa_count"] = _QaCount
+
+    def _compute_analysis_metrics( self, iDetailMap: dict, iTokenStats: dict ) -> dict:
+        """
+        從 detail 解析結果計算分析指標。
+
+        Args:
+            iDetailMap:  _parse_all_conversation_details() 的回傳值。
+            iTokenStats: _compute_token_stats() 的回傳值。
+
+        Returns:
+            {
+                "total_convs":       int,
+                "total_qa":          int,
+                "avg_qa_per_conv":   float,
+                "total_problems":    int,
+                "total_learnings":   int,
+                "success_rate":      float,   # 0~100
+                "top_consumers":     [{ "session": str, "project": str, "tokens": int }],
+                "error_patterns":    { "pattern": count },
+                "all_learnings":     [str],
+                "all_problems":      [{ problem, cause, solution, project }],
+                "scores":            { dim: score },
+                "per_project": {
+                    "{org}/{project}": {
+                        "conv_count":    int,
+                        "success_rate":  float,
+                        "tokens":        int,
+                    }
+                }
+            }
+        """
+        from services.token_counter import TokenCounter
+
+        _TotalConvs      = 0
+        _TotalQa         = 0
+        _ConvsWithQa     = 0   # 有 QA 記錄的對話數（用於計算有意義的平均輪數）
+        _TotalProblems   = 0
+        _SolvedProblems  = 0   # 有 solution 的 problems
+        _ConvsNoProblems = 0
+        _AllLearnings    = []
+        _AllProblems     = []
+        _AllConsumers    = []
+        _ErrorDetails    = []  # [{ problem, cause, solution, count }]
+        _PerProject      = {}
+
+        for _Key, _Details in iDetailMap.items():
+            _ProjConvs   = len( _Details )
+            _ProjNoProb  = 0
+            _ProjTokens  = iTokenStats.get( _Key, 0 )
+
+            for _D in _Details:
+                _TotalConvs += 1
+                _QaCount = _D["qa_count"]
+                _TotalQa += _QaCount
+                if _QaCount > 0:
+                    _ConvsWithQa += 1
+                _Probs = _D["problems"]
+                _TotalProblems += len( _Probs )
+
+                if not _Probs:
+                    _ConvsNoProblems += 1
+                    _ProjNoProb      += 1
+
+                _AllLearnings.extend( _D["learnings"] )
+                for _P in _Probs:
+                    _P["project"] = _Key
+                    _AllProblems.append( _P )
+                    if _P.get( "solution", "" ).strip():
+                        _SolvedProblems += 1
+                    _ErrorDetails.append( {
+                        "problem":  _P.get( "problem", "" ),
+                        "cause":    _P.get( "cause", "" ),
+                        "solution": _P.get( "solution", "" ),
+                    } )
+
+                _AllConsumers.append( {
+                    "session": _D["session"],
+                    "project": _Key,
+                    "tokens":  _D["tokens"],
+                } )
+
+            _PerProject[_Key] = {
+                "conv_count":   _ProjConvs,
+                "success_rate": ( _ProjNoProb / _ProjConvs * 100 ) if _ProjConvs else 0,
+                "tokens":       _ProjTokens,
+            }
+
+        _SuccessRate = ( _ConvsNoProblems / _TotalConvs * 100 ) if _TotalConvs else 100
+        # 平均 QA 只算有 QA 資料的對話（避免無 detail 的對話把平均拉低）
+        _AvgQa = ( _TotalQa / _ConvsWithQa ) if _ConvsWithQa else 0
+
+        # Top 3 高消耗
+        _AllConsumers.sort( key=lambda x: x["tokens"], reverse=True )
+        _TopConsumers = _AllConsumers[:3]
+
+        # 自動評分
+        _SolveRate = ( _SolvedProblems / _TotalProblems * 100 ) if _TotalProblems else 100
+        _Scores = self._auto_score(
+            _SuccessRate, _AvgQa, _TotalProblems, _TotalConvs,
+            _AllLearnings, _SolveRate, _ConvsWithQa,
+        )
+
+        return {
+            "total_convs":       _TotalConvs,
+            "total_qa":          _TotalQa,
+            "convs_with_qa":     _ConvsWithQa,
+            "avg_qa_per_conv":   round( _AvgQa, 1 ),
+            "total_problems":    _TotalProblems,
+            "solved_problems":   _SolvedProblems,
+            "solve_rate":        round( _SolveRate, 1 ),
+            "total_learnings":   len( _AllLearnings ),
+            "success_rate":      round( _SuccessRate, 1 ),
+            "top_consumers":     _TopConsumers,
+            "error_details":     _ErrorDetails,
+            "all_learnings":     _AllLearnings,
+            "all_problems":      _AllProblems,
+            "scores":            _Scores,
+            "per_project":       _PerProject,
+        }
+
+    @staticmethod
+    def _auto_score(
+        iSuccessRate: float, iAvgQa: float, iTotalProblems: int, iTotalConvs: int,
+        iLearnings: list, iSolveRate: float = 100.0, iConvsWithQa: int = 0,
+    ) -> dict:
+        """
+        根據指標自動產出 1-5 評分。
+
+        Args:
+            iSuccessRate: 無問題對話比率 (0-100)。
+            iAvgQa:       有 QA 記錄的對話之平均 QA 輪數。
+            iTotalProblems: 問題總數。
+            iTotalConvs:   對話總數。
+            iLearnings:    學習清單。
+            iSolveRate:    有解法的問題比率 (0-100)。
+            iConvsWithQa:  有 QA 記錄的對話數（0 = 無 QA 資料）。
+
+        Returns:
+            { "溝通效率": int, "輸出品質": int, "問題解決率": int, "Prompt 技巧": int }
+        """
+        # 溝通效率：基於 success_rate（無問題的對話佔比）
+        if iSuccessRate >= 85:   _CommScore = 5
+        elif iSuccessRate >= 70: _CommScore = 4
+        elif iSuccessRate >= 50: _CommScore = 3
+        elif iSuccessRate >= 30: _CommScore = 2
+        else:                    _CommScore = 1
+
+        # 輸出品質：基於 problems/conversation 比率（越低越好）
+        _ProbRate = ( iTotalProblems / iTotalConvs ) if iTotalConvs else 0
+        if _ProbRate <= 0.3:    _QualScore = 5
+        elif _ProbRate <= 0.7:  _QualScore = 4
+        elif _ProbRate <= 1.5:  _QualScore = 3
+        elif _ProbRate <= 2.5:  _QualScore = 2
+        else:                   _QualScore = 1
+
+        # 問題解決率：基於「有解法的 problem / 總 problem」
+        if iTotalProblems == 0:
+            _SolveScore = 5
+        elif iSolveRate >= 90:  _SolveScore = 5
+        elif iSolveRate >= 70: _SolveScore = 4
+        elif iSolveRate >= 50: _SolveScore = 3
+        elif iSolveRate >= 30: _SolveScore = 2
+        else:                  _SolveScore = 1
+
+        # Prompt 技巧：基於平均 QA 輪數（越少 = prompt 越精準）和 learnings 數量
+        # 無 QA 資料時用中間值 3
+        if iConvsWithQa == 0:
+            _PromptScore = 3
+        else:
+            if iAvgQa <= 2.0:     _PromptScore = 5
+            elif iAvgQa <= 4.0:   _PromptScore = 4
+            elif iAvgQa <= 6.0:   _PromptScore = 3
+            elif iAvgQa <= 9.0:   _PromptScore = 2
+            else:                  _PromptScore = 1
+        _LearningBonus = min( 1, len( iLearnings ) // 5 )
+        _PromptScore = min( 5, _PromptScore + _LearningBonus )
+
+        return {
+            "溝通效率":     _CommScore,
+            "輸出品質":     _QualScore,
+            "問題解決率":   _SolveScore,
+            "Prompt 技巧": _PromptScore,
+        }
+
     def _render_ai_weekly_analysis_template(
         self, iYear: int, iWeek: int, iWeekStart: str, iWeekEnd: str,
-        iProjectConvs: dict, iTokenStats: dict = None
+        iProjectConvs: dict, iTokenStats: dict = None, iMetrics: dict = None
     ) -> str:
         """渲染 AI 對話每週分析模板。"""
         from services.token_counter import TokenCounter
         _Today = datetime.now().strftime( "%Y-%m-%d" )
-        _TotalConvs = sum( len( _V ) for _V in iProjectConvs.values() )
         _P = self.m_Config.paths
         _TokenStatsMap = iTokenStats or {}
         _TotalTokens = sum( _TokenStatsMap.values() )
+        _M = iMetrics or {}
 
-        # 各專案統計表
+        # 使用 metrics 的正確對話數（排除 detail 檔）
+        _TotalConvs  = _M.get( "total_convs", sum( len( _V ) for _V in iProjectConvs.values() ) )
+        _AvgQa       = _M.get( "avg_qa_per_conv", 0 )
+        _ConvsWithQa = _M.get( "convs_with_qa", 0 )
+        _SuccessRate = _M.get( "success_rate", 0 )
+        _SolveRate   = _M.get( "solve_rate", 0 )
+        _Scores      = _M.get( "scores", {} )
+
+        # 平均輪數顯示：無 QA 資料時不顯示數字
+        _AvgQaDisplay = f"{_AvgQa}" if _ConvsWithQa > 0 else "—（尚無 detail 記錄）"
+
+        # 各專案統計表（排除 detail 檔名）
         _ProjRows = ""
         for _Key, _Files in iProjectConvs.items():
+            _MainFiles = [ _F for _F in _Files if not _F.endswith( "-detail.md" ) ]
             _Org, _Proj = _Key.split( "/" )
             _ConvDir = _P.project_conversations_dir( _Org, _Proj )
-            _Links = ", ".join( f"[{_F}]({_ConvDir}/{_F})" for _F in _Files )
-            _ProjRows += f"| {_Org} | {_Proj} | {len( _Files )} | {_Links} |\n"
+            _Links = ", ".join( f"[{_F}]({_ConvDir}/{_F})" for _F in _MainFiles )
+            _ProjRows += f"| {_Org} | {_Proj} | {len( _MainFiles )} | {_Links} |\n"
 
         if not _ProjRows:
             _ProjRows = "| （本週尚無對話紀錄） | | | |\n"
 
-        # Token 消耗表（依專案）
+        # Token 消耗表（單欄合計，不分 input/output）
         _TokenRows = ""
         for _Key, _Toks in _TokenStatsMap.items():
-            _TokenRows += f"| {_Key} | {TokenCounter.format_k( _Toks )} | — | {TokenCounter.format_k( _Toks )} |\n"
+            _TokenRows += f"| {_Key} | {TokenCounter.format_k( _Toks )} |\n"
         if not _TokenRows:
-            _TokenRows = "| （無資料） | | | |\n"
+            _TokenRows = "| （無資料） | |\n"
 
         _TotalTokenFmt = TokenCounter.format_k( _TotalTokens ) if _TotalTokens else "—"
+
+        # 高消耗對話
+        _TopConsumers = _M.get( "top_consumers", [] )
+        _TopConsumerLines = ""
+        for _TC in _TopConsumers:
+            _TopConsumerLines += f"- **{_TC['session']}**（{_TC['project']}）— {TokenCounter.format_k( _TC['tokens'] )} tokens\n"
+        if not _TopConsumerLines:
+            _TopConsumerLines = "- （本週無特別高消耗對話）\n"
+
+        # 錯誤模式表（帶根本原因與改進方式）
+        _ErrorDetails = _M.get( "error_details", [] )
+        _ErrorRows = ""
+        _Seen = set()
+        for _ED in _ErrorDetails:
+            _Prob = _ED["problem"][:30]
+            if _Prob in _Seen:
+                continue
+            _Seen.add( _Prob )
+            _Cause = _ED.get( "cause", "" )[:30] or "—"
+            _Sol   = _ED.get( "solution", "" )[:30] or "—"
+            _Cnt   = sum( 1 for _X in _ErrorDetails if _X["problem"][:30] == _Prob )
+            _ErrorRows += f"| {_Prob} | {_Cnt} | {_Cause} | {_Sol} |\n"
+            if len( _Seen ) >= 5:
+                break
+        if not _ErrorRows:
+            _ErrorRows = "| （本週無明顯錯誤模式） | | | |\n"
+
+        # 成功的對話模式
+        _SuccessConvLines = ""
+        if _TotalConvs > 0:
+            _SuccessConvLines = f"- 本週 {_TotalConvs} 次對話中 **{_SuccessRate}%** 無需重試即完成\n"
+            if _M.get( "total_problems", 0 ):
+                _SuccessConvLines += f"- 共 {_M['total_problems']} 個問題，{_SolveRate}% 有明確解法\n"
+        if not _SuccessConvLines:
+            _SuccessConvLines = "- （無足夠資料分析）\n"
+
+        # 評分與說明
+        _ScoreDimensions = {
+            "溝通效率":     "意圖傳達精準度",
+            "輸出品質":     "輸出正確性與可用性",
+            "問題解決率":   "問題解決效率",
+            "Prompt 技巧": "指令精準度與效率",
+        }
+        _ScoreRows = ""
+        for _Dim, _Desc in _ScoreDimensions.items():
+            _Val = _Scores.get( _Dim, 0 )
+            _Stars = "★" * _Val + "☆" * ( 5 - _Val )
+            _ScoreRows += f"| {_Dim} | {_Stars} ({_Val}/5) | {_Desc} |\n"
+
+        # 學到的東西
+        _Learnings = _M.get( "all_learnings", [] )
+        _LearningLines = ""
+        for _L in _Learnings[:8]:
+            _LearningLines += f"- {_L}\n"
+        if not _LearningLines:
+            _LearningLines = "- （本週未記錄特別收穫）\n"
+
+        # 改進目標
+        _ImprovementLines = ""
+        _SeenProbs = set()
+        for _ED in _ErrorDetails[:3]:
+            _Prob = _ED["problem"][:30]
+            if _Prob not in _SeenProbs:
+                _SeenProbs.add( _Prob )
+                _ImprovementLines += f"- 減少「{_Prob}」類問題\n"
+        if _AvgQa > 3 and _ConvsWithQa > 0:
+            _ImprovementLines += "- 嘗試更精確的 Prompt 以減少平均輪數\n"
+        if not _ImprovementLines:
+            _ImprovementLines = "- 維持目前品質水準\n"
+
+        # Token 節省建議
+        _TokenTips = ""
+        if _TopConsumers:
+            _TokenTips += "- 高消耗對話可嘗試分拆為多次小型對話\n"
+        if _AvgQa > 5:
+            _TokenTips += "- 提供更完整的上下文以減少來回輪數\n"
+        if not _TokenTips:
+            _TokenTips = "- 目前 Token 使用效率良好\n"
 
         return f"""---
 type: ai-analysis-weekly
@@ -784,8 +1193,8 @@ period: {iWeekStart} ~ {iWeekEnd}
 | 對話總數 | {_TotalConvs} |
 | 涉及專案數 | {len( iProjectConvs )} |
 | 平均每日對話數 | {_TotalConvs / 7:.1f} |
-| 平均輪數（人→AI） | TODO |
-| 一次成功率 | TODO% |
+| 平均輪數（人→AI） | {_AvgQaDisplay} |
+| 一次成功率 | {_SuccessRate}% |
 | 估計 Token 消耗 | {_TotalTokenFmt} |
 
 ## 各專案對話明細
@@ -797,74 +1206,153 @@ period: {iWeekStart} ~ {iWeekEnd}
 
 ### 成功的對話模式
 
-- 
-
+{_SuccessConvLines}
 ### 常見錯誤 / 需重試的情境
 
 | 錯誤模式 | 出現次數 | 根本原因 | 改進方式 |
 |---------|---------|---------|---------|
-| 指令模糊 | | 缺乏具體需求描述 | 提供檔案路徑與期望結果 |
-| 缺少上下文 | | 未附相關程式碼 | 先提供背景再提需求 |
-| 一次要求過多 | | 需求範圍過大 | 拆分為獨立步驟 |
-
+{_ErrorRows}
 ## Token 消耗分析
 
-| 專案 | 預估 Input Tokens | 預估 Output Tokens | 合計 |
-|------|------------------|-------------------|------|
+| 專案 | 預估 Token |
+|------|----------|
 {_TokenRows}
 ### 高消耗對話
 
-- 
-
+{_TopConsumerLines}
 ### 節省 Token 的方式
 
-- 
-
+{_TokenTips}
 ## 本週評分
 
 | 維度 | 評分 (1-5) | 說明 |
 |------|-----------|------|
-| 溝通效率 | ⬜ | |
-| 輸出品質 | ⬜ | |
-| 問題解決率 | ⬜ | |
-| Prompt 技巧 | ⬜ | |
-
+{_ScoreRows}
 ## Prompt 技巧收穫
 
-- 
-
+{_LearningLines}
 ## 下週改進目標
 
-- 
+{_ImprovementLines}
 """
 
     def _render_ai_monthly_analysis_template(
         self, iYearMonth: str, iProjectConvs: dict, iWeeklyReports: list,
-        iTokenStats: dict = None
+        iTokenStats: dict = None, iMetrics: dict = None
     ) -> str:
         """渲染 AI 對話每月分析模板。"""
         from services.token_counter import TokenCounter
         _Today = datetime.now().strftime( "%Y-%m-%d" )
-        _TotalConvs = sum( len( _V ) for _V in iProjectConvs.values() )
         _P = self.m_Config.paths
         _TokenStatsMap = iTokenStats or {}
         _TotalTokens = sum( _TokenStatsMap.values() )
+        _M = iMetrics or {}
+        _Scores      = _M.get( "scores", {} )
+        _SuccessRate = _M.get( "success_rate", 0 )
+        _PerProject  = _M.get( "per_project", {} )
 
-        # 各專案月度統計
+        # 使用 metrics 的正確對話數（排除 detail 檔）
+        _TotalConvs = _M.get( "total_convs", sum( len( _V ) for _V in iProjectConvs.values() ) )
+
+        # 各專案月度統計（排除 detail 檔名）
         _ProjRows = ""
         for _Key, _Files in iProjectConvs.items():
+            _MainCount = sum( 1 for _F in _Files if not _F.endswith( "-detail.md" ) )
             _TokFmt = TokenCounter.format_k( _TokenStatsMap.get( _Key, 0 ) )
-            _ProjRows += f"| {_Key} | {len( _Files )} | TODO | {_TokFmt} |\n"
+            _ProjSR = _PerProject.get( _Key, {} ).get( "success_rate", 0 )
+            _ProjRows += f"| {_Key} | {_MainCount} | {_ProjSR:.0f}% | {_TokFmt} |\n"
 
         if not _ProjRows:
             _ProjRows = "| （本月尚無對話紀錄） | | | |\n"
 
-        # 週報連結
+        # 週報連結 + 嘗試解析週報裡的評分（從檔名不用解析內容，直接用 _Metrics）
         _WeeklyLinks = "\n".join(
             f"- [{_F}]({_P.ai_analysis_weekly}/{_F})" for _F in iWeeklyReports
         ) if iWeeklyReports else "（本月尚無週報）"
 
         _TotalTokenFmt = TokenCounter.format_k( _TotalTokens ) if _TotalTokens else "—"
+
+        # 週趨勢表 — 嘗試從週報檔案提取數據
+        _WeekTrendRows = ""
+        for _WF in iWeeklyReports:
+            _WPath = os.path.join( self.m_VaultRoot, _P.ai_analysis_weekly, _WF )
+            _WData = self._extract_weekly_summary( _WPath )
+            _WeekLabel = _WF.replace( ".md", "" )
+            _WeekTrendRows += (
+                f"| {_WeekLabel} | {_WData['convs']} | {_WData['success_rate']} | "
+                f"{_WData['tokens']} | {_WData['change']} |\n"
+            )
+        if not _WeekTrendRows:
+            _WeekTrendRows = "| （無週報資料） | | | | |\n"
+
+        # 評分行
+        _ScoreDimensions = [ "溝通效率", "輸出品質", "問題解決率", "Prompt 技巧" ]
+        _ScoreRows = ""
+        for _Dim in _ScoreDimensions:
+            _Val = _Scores.get( _Dim, 0 )
+            _Stars = "★" * _Val + "☆" * ( 5 - _Val )
+            _ScoreRows += f"| {_Dim} | {_Stars} ({_Val}/5) | — | — |\n"
+        # Token 效率（基於每次對話平均 token）
+        _AvgTokenPerConv = ( _TotalTokens // _TotalConvs ) if _TotalConvs else 0
+        if _AvgTokenPerConv <= 500:     _TokenEffScore = 5
+        elif _AvgTokenPerConv <= 1500:  _TokenEffScore = 4
+        elif _AvgTokenPerConv <= 3000:  _TokenEffScore = 3
+        elif _AvgTokenPerConv <= 5000:  _TokenEffScore = 2
+        else:                           _TokenEffScore = 1
+        _Stars = "★" * _TokenEffScore + "☆" * ( 5 - _TokenEffScore )
+        _ScoreRows += f"| Token 效率 | {_Stars} ({_TokenEffScore}/5) | — | — |\n"
+
+        # 主要收穫
+        _Learnings = _M.get( "all_learnings", [] )
+        _LearningLines = ""
+        for _L in _Learnings[:10]:
+            _LearningLines += f"- {_L}\n"
+        if not _LearningLines:
+            _LearningLines = "- （本月未記錄特別收穫）\n"
+
+        # 優化建議
+        _ErrorDetails = _M.get( "error_details", [] )
+        _OptPrompt = ""
+        _SeenOpt = set()
+        for _ED in _ErrorDetails[:2]:
+            _Prob = _ED["problem"][:30]
+            if _Prob not in _SeenOpt:
+                _SeenOpt.add( _Prob )
+                _OptPrompt += f"- 針對「{_Prob}」類問題改善 Prompt 描述\n"
+        if not _OptPrompt:
+            _OptPrompt = "- 維持目前 Prompt 品質\n"
+
+        _OptWorkflow = ""
+        _AvgQa = _M.get( "avg_qa_per_conv", 0 )
+        _ConvsWithQa = _M.get( "convs_with_qa", 0 )
+        if _AvgQa > 5 and _ConvsWithQa > 0:
+            _OptWorkflow += "- 嘗試拆分大型任務為多個小對話\n"
+        if _TotalConvs > 30:
+            _OptWorkflow += "- 考慮彙整常用操作為自動化腳本\n"
+        if not _OptWorkflow:
+            _OptWorkflow = "- 目前工作流程效率良好\n"
+
+        # 改進計畫
+        _ImprovementLines = ""
+        _SeenImp = set()
+        for _ED in _ErrorDetails[:3]:
+            _Prob = _ED["problem"][:30]
+            if _Prob not in _SeenImp:
+                _SeenImp.add( _Prob )
+                _ImprovementLines += f"- 減少「{_Prob}」類問題\n"
+        if _AvgQa > 3 and _ConvsWithQa > 0:
+            _ImprovementLines += "- 持續優化 Prompt 精準度\n"
+        if not _ImprovementLines:
+            _ImprovementLines = "- 維持目前品質水準\n"
+
+        # 反思
+        _ReflectLines = ""
+        if _SuccessRate >= 80:
+            _ReflectLines += f"- 本月一次成功率 {_SuccessRate:.0f}%，整體表現良好\n"
+        else:
+            _ReflectLines += f"- 本月一次成功率 {_SuccessRate:.0f}%，需關注常見失敗模式\n"
+        if _Learnings:
+            _ReflectLines += f"- 累積 {len( _Learnings )} 項學習筆記，知識沉澱持續進行\n"
 
         return f"""---
 type: ai-analysis-monthly
@@ -882,7 +1370,7 @@ month: {iYearMonth}
 | 對話總數 | {_TotalConvs} |
 | 涉及專案數 | {len( iProjectConvs )} |
 | 平均每週對話數 | {_TotalConvs / 4:.1f} |
-| 月度一次成功率 | TODO% |
+| 月度一次成功率 | {_SuccessRate:.0f}% |
 | 月度 Token 總消耗 | {_TotalTokenFmt} |
 
 ## 各專案月度對話統計
@@ -900,51 +1388,74 @@ month: {iYearMonth}
 
 | 週次 | 對話數 | 成功率 | Token 消耗 | 變化 |
 |------|--------|--------|-----------|------|
-| W1 | | | | |
-| W2 | | | | |
-| W3 | | | | |
-| W4 | | | | |
-
+{_WeekTrendRows}
 ### 效率變化
 
-- 
+- 本月平均 QA 輪數：{_AvgQa}
+- 本月一次成功率：{_SuccessRate:.0f}%
 
 ## 優化建議
 
 ### Prompt 優化
 
-- 
-
+{_OptPrompt}
 ### 工作流程優化
 
-- 
-
+{_OptWorkflow}
 ### 工具使用優化
 
-- 
+- 善用 detail 結構化記錄提升追蹤品質
 
 ## 月度評分
 
 | 維度 | 評分 (1-5) | 上月 | 變化 |
 |------|-----------|------|------|
-| 溝通效率 | ⬜ | ⬜ | |
-| 輸出品質 | ⬜ | ⬜ | |
-| 問題解決率 | ⬜ | ⬜ | |
-| Prompt 技巧 | ⬜ | ⬜ | |
-| Token 效率 | ⬜ | ⬜ | |
-
+{_ScoreRows}
 ## 主要收穫
 
-- 
-
+{_LearningLines}
 ## 下月改進計畫
 
-- 
-
+{_ImprovementLines}
 ## 反思
 
-- 
+{_ReflectLines}
 """
+
+    def _extract_weekly_summary( self, iWeeklyPath: str ) -> dict:
+        """
+        從已生成的週報 .md 提取「對話總數」「一次成功率」「Token 消耗」。
+
+        Returns:
+            { "convs": str, "success_rate": str, "tokens": str, "change": str }
+        """
+        _Default = { "convs": "—", "success_rate": "—", "tokens": "—", "change": "—" }
+        try:
+            with open( iWeeklyPath, "r", encoding="utf-8" ) as _F:
+                _Lines = _F.readlines()
+        except OSError:
+            return _Default
+
+        _Convs       = "—"
+        _SuccessRate = "—"
+        _Tokens      = "—"
+
+        for _Line in _Lines:
+            _Stripped = _Line.strip()
+            if "| 對話總數" in _Stripped:
+                _Parts = [ _C.strip() for _C in _Stripped.split( "|" ) ]
+                if len( _Parts ) >= 3:
+                    _Convs = _Parts[2]
+            elif "| 一次成功率" in _Stripped:
+                _Parts = [ _C.strip() for _C in _Stripped.split( "|" ) ]
+                if len( _Parts ) >= 3:
+                    _SuccessRate = _Parts[2]
+            elif "| 估計 Token" in _Stripped or "| Token" in _Stripped:
+                _Parts = [ _C.strip() for _C in _Stripped.split( "|" ) ]
+                if len( _Parts ) >= 3:
+                    _Tokens = _Parts[2]
+
+        return { "convs": _Convs, "success_rate": _SuccessRate, "tokens": _Tokens, "change": "—" }
     #endregion
 
     #region 私有方法 — 對話詳細紀錄渲染
@@ -1049,6 +1560,82 @@ month: {iYearMonth}
             _Lines.append( "" )
 
         return "\n".join( _Lines )
+    #endregion
+
+    #region 私有方法 — 自動學習管道
+    def _auto_learn_instincts( self, iDetail: dict, iOrg: str, iProject: str ) -> None:
+        """
+        從 log_ai_conversation 的 detail 自動萃取直覺卡片。
+        解析 problems（問題→解法→直覺）和 learnings（學到的知識→直覺）。
+        靜默失敗：單張卡片建立失敗不影響整體對話記錄流程。
+
+        Args:
+            iDetail:  結構化詳細紀錄 dict。
+            iOrg:     組織名稱。
+            iProject: 專案名稱。
+        """
+        try:
+            from services.instinct import InstinctService
+            _Svc = InstinctService( self.m_Config )
+        except Exception as _Err:
+            _logger.warning( f"[AutoLearn] InstinctService 初始化失敗，跳過自動學習：{_Err}" )
+            return
+
+        _Source = f"auto-learn:{iOrg}/{iProject}"
+        _Created = 0
+
+        # ── 從 problems 萃取 ─────────────────────────
+        for _P in iDetail.get( "problems", [] ):
+            if not isinstance( _P, dict ):
+                continue
+            _Problem  = _P.get( "problem", "" ).strip()
+            _Solution = _P.get( "solution", "" ).strip()
+            if not _Problem or not _Solution:
+                continue
+            _Id = re.sub( r"[^a-z0-9]+", "-", _Problem[:60].lower() ).strip( "-" )
+            if not _Id:
+                continue
+            try:
+                _Svc.create(
+                    iId=_Id,
+                    iTrigger=_Problem,
+                    iDomain=iProject,
+                    iTitle=f"問題：{_Problem[:50]}",
+                    iAction=_Solution,
+                    iEvidence=_P.get( "cause", "" ),
+                    iSource=_Source,
+                )
+                _Created += 1
+            except FileExistsError:
+                pass  # 同 ID 已存在，靜默跳過
+            except Exception as _Err:
+                _logger.warning( f"[AutoLearn] 建立 problem instinct '{_Id}' 失敗：{_Err}" )
+
+        # ── 從 learnings 萃取 ────────────────────────
+        for _L in iDetail.get( "learnings", [] ):
+            if not isinstance( _L, str ) or len( _L.strip() ) < 10:
+                continue
+            _Text = _L.strip()
+            _Id = re.sub( r"[^a-z0-9]+", "-", _Text[:60].lower() ).strip( "-" )
+            if not _Id:
+                continue
+            try:
+                _Svc.create(
+                    iId=_Id,
+                    iTrigger=_Text,
+                    iDomain=iProject,
+                    iTitle=f"學習：{_Text[:50]}",
+                    iAction=_Text,
+                    iSource=_Source,
+                )
+                _Created += 1
+            except FileExistsError:
+                pass
+            except Exception as _Err:
+                _logger.warning( f"[AutoLearn] 建立 learning instinct '{_Id}' 失敗：{_Err}" )
+
+        if _Created > 0:
+            _logger.info( f"[AutoLearn] 自動建立 {_Created} 張直覺卡片（{iOrg}/{iProject}）" )
     #endregion
 
     #region 私有方法 — 檔案操作

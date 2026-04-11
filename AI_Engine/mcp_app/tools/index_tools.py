@@ -101,3 +101,30 @@ def register( mcp ):
             f"更新={_Stats['index_stats']['num_updated']}，"
             f"刪除={_Stats['index_stats']['num_deleted']}"
         )
+
+    @mcp.tool()
+    @suppress_stdout
+    def backup_chromadb() -> str:
+        """
+        立即備份 ChromaDB 向量資料庫為 zip 壓縮檔，保留在 DATA_DIR/backups/。
+        自動清理超過 7 份的舊備份（保留最新 7 份）。
+        不影響正在運行的索引，可安全在任何時間呼叫。
+        """
+        from config import ConfigManager
+        from services.backup import BackupService
+        _Config = ConfigManager.load()
+        _Svc    = BackupService( _Config )
+        _Path, _Err = _Svc.backup_chromadb()
+        if _Err:
+            return f"❌ 備份失敗：{_Err}"
+        _Cleaned = _Svc.cleanup()
+        _Backups = _Svc.list_backups()
+        _Lines   = [
+            f"✅ 備份完成：{_Path}",
+            f"清除 {_Cleaned} 份舊備份，目前保留 {len( _Backups )} 份",
+        ]
+        if _Backups:
+            _Lines.append( "\n現有備份：" )
+            for _B in _Backups:
+                _Lines.append( f"  - {_B['name']}（{_B['size_mb']:.1f} MB）" )
+        return "\n".join( _Lines )

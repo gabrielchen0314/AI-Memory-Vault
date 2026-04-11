@@ -540,3 +540,46 @@ def remove_todo( cls, iFilePath: str, iTodoText: str ) -> tuple:
         "index_stats": _Stats["index_stats"],
         "total_chunks": _Stats["total_chunks"],
     }, None
+
+
+def list_projects( cls ) -> tuple:
+    """
+    列出 Vault 中所有組織及其下的專案清單。
+
+    Args:
+        cls: VaultService class。
+
+    Returns:
+        (result_list, error_message)
+        result_list: [{"organization": str, "projects": [{"name": str, "has_status": bool}]}]
+    """
+    cls._ensure_initialized()
+    _P = cls.m_Config.paths
+    _WorkspacesAbs = os.path.join( cls.m_Config.vault_path, _P.workspaces )
+
+    if not os.path.isdir( _WorkspacesAbs ):
+        return None, "Vault workspaces 目錄不存在。"
+
+    _Result = []
+    for _OrgEntry in sorted( os.listdir( _WorkspacesAbs ) ):
+        if _OrgEntry.startswith( "_" ):
+            continue
+        _OrgDir = os.path.join( _WorkspacesAbs, _OrgEntry )
+        if not os.path.isdir( _OrgDir ):
+            continue
+
+        _ProjectsDir = os.path.join( _OrgDir, _P.org_projects )
+        _Projects = []
+        if os.path.isdir( _ProjectsDir ):
+            for _ProjEntry in sorted( os.listdir( _ProjectsDir ) ):
+                if os.path.isdir( os.path.join( _ProjectsDir, _ProjEntry ) ):
+                    _StatusPath = _P.project_status_file( _OrgEntry, _ProjEntry )
+                    _StatusAbs = os.path.join( cls.m_Config.vault_path, _StatusPath )
+                    _Projects.append({
+                        "name": _ProjEntry,
+                        "has_status": os.path.isfile( _StatusAbs ),
+                    })
+
+        _Result.append({ "organization": _OrgEntry, "projects": _Projects })
+
+    return _Result, None

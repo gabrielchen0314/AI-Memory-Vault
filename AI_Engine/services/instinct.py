@@ -70,6 +70,7 @@ class InstinctService:
         self.m_Config      = iConfig
         self.m_VaultRoot   = iConfig.vault_path
         self.m_InstinctDir = os.path.join( self.m_VaultRoot, iConfig.paths.personal_instincts )
+        self._cached_config: Optional[dict] = None
         os.makedirs( self.m_InstinctDir, exist_ok=True )
 
     # ─────────────────────────────────────────────
@@ -77,19 +78,24 @@ class InstinctService:
     # ─────────────────────────────────────────────
 
     def _load_config( self ) -> dict:
-        """載入 instinct 設定，不存在則建立預設。"""
+        """載入 instinct 設定，不存在則建立預設。使用快取避免重複讀取。"""
+        if self._cached_config is not None:
+            return self._cached_config
         _Path = os.path.join( self.m_InstinctDir, "_config.json" )
         if os.path.exists( _Path ):
             with open( _Path, "r", encoding="utf-8" ) as _F:
-                return json.load( _F )
+                self._cached_config = json.load( _F )
+                return self._cached_config
         self._save_config( _DEFAULT_CONFIG )
-        return _DEFAULT_CONFIG.copy()
+        self._cached_config = _DEFAULT_CONFIG.copy()
+        return self._cached_config
 
     def _save_config( self, iConfig: dict ) -> None:
-        """儲存 instinct 設定。"""
+        """儲存 instinct 設定並更新快取。"""
         _Path = os.path.join( self.m_InstinctDir, "_config.json" )
         with open( _Path, "w", encoding="utf-8" ) as _F:
             json.dump( iConfig, _F, indent=2, ensure_ascii=False )
+        self._cached_config = iConfig
 
     #endregion
 
@@ -126,48 +132,25 @@ class InstinctService:
     @staticmethod
     def _parse_frontmatter( iContent: str ) -> dict:
         """
-        解析 YAML frontmatter，回傳 dict。
+        解析 YAML frontmatter（委派至 core.frontmatter 共用模組）。
 
         Args:
             iContent: 完整檔案內容（含 --- 標記）。
         """
-        if not iContent.startswith( "---" ):
-            return {}
-        _End = iContent.find( "---", 3 )
-        if _End == -1:
-            return {}
-
-        _Result = {}
-        for _Line in iContent[3:_End].strip().split( "\n" ):
-            if ":" not in _Line:
-                continue
-            _Key, _, _Value = _Line.partition( ":" )
-            _Key   = _Key.strip()
-            _Value = _Value.strip().strip( '"' ).strip( "'" )
-            if re.match( r"^\d+\.\d+$", _Value ):
-                _Result[_Key] = float( _Value )
-            elif re.match( r"^\d+$", _Value ):
-                _Result[_Key] = int( _Value )
-            else:
-                _Result[_Key] = _Value
-        return _Result
+        from core.frontmatter import parse
+        _Meta, _ = parse( iContent )
+        return _Meta
 
     @staticmethod
     def _render_frontmatter( iMeta: dict ) -> str:
         """
-        渲染 YAML frontmatter。
+        渲染 YAML frontmatter（委派至 core.frontmatter 共用模組）。
 
         Args:
             iMeta: metadata 字典。
         """
-        _Lines = [ "---" ]
-        for _K, _V in iMeta.items():
-            if isinstance( _V, str ):
-                _Lines.append( f'{_K}: "{_V}"' )
-            else:
-                _Lines.append( f"{_K}: {_V}" )
-        _Lines.append( "---" )
-        return "\n".join( _Lines )
+        from core.frontmatter import render
+        return render( iMeta )
 
     #endregion
 
@@ -357,8 +340,8 @@ class InstinctService:
         _Hits    = VaultService.search( iQuery, iTopK=20 )
         _Results = []
 
-        for _Doc, _Score in _Hits:
-            _Source = _Doc.metadata.get( "source", "" )
+        for _Hit in _Hits:
+            _Source = _Hit.get( "source", "" )
             if "personal/instincts/" not in _Source:
                 continue
 
@@ -375,8 +358,7 @@ class InstinctService:
             if float( _Meta.get( "confidence", 0 ) ) < iMinConfidence:
                 continue
 
-            _Meta["score"]   = round( _Score, 4 )
-            _Meta["snippet"] = _Doc.page_content[:200]
+            _Meta["snippet"] = _Hit.get( "content", "" )[:200]
             _Results.append( _Meta )
 
         return _Results

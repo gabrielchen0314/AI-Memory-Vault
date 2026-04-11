@@ -13,6 +13,10 @@ import os
 import sys
 from functools import wraps
 
+from core.logger import get_logger
+
+_logger = get_logger( __name__ )
+
 
 class StdoutToStderr:
     """
@@ -43,5 +47,6 @@ def suppress_stdout( fn ):
             with StdoutToStderr():
                 return fn( *args, **kwargs )
         except Exception as _E:
+            _logger.exception( "MCP tool error in %s", fn.__name__ )
             return f"Error: {_E}"
     return _wrapper

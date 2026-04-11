@@ -87,6 +87,16 @@ class AutoScheduler:
             "description": "生成月度復盤報告（Instinct 統計、問題分析、協作效率），產生 personal/reviews/monthly/",
             "schedule":    "每月 1 日",
         },
+        "db-backup": {
+            "name":        "資料庫備份",
+            "description": "壓縮 ChromaDB 向量索引為 zip 備份，保留最近 7 份",
+            "schedule":    "每天 03:00",
+        },
+        "extract-sessions": {
+            "name":        "VS Code 對話提取",
+            "description": "從 chatSessions/*.jsonl 提取 Q&A 對話到 Vault conversations/（零 LLM Token）",
+            "schedule":    "依需求",
+        },
     }
 
     #region 成員變數
@@ -172,8 +182,16 @@ class AutoScheduler:
             replace_existing=True,
         )
 
+        # DB Backup：每天 03:00（壓縮 ChromaDB → backups/）
+        self.m_Scheduler.add_job(
+            self._run_db_backup,
+            CronTrigger( hour=3, minute=0 ),
+            id="daily_db_backup",
+            replace_existing=True,
+        )
+
         self.m_Scheduler.start()
-        _logger.info( "[AutoScheduler] 已啟動（daily/weekly/weekly-AI/monthly/monthly-AI/full-sync 任務已排入）" )
+        _logger.info( "[AutoScheduler] 已啟動（daily/weekly/weekly-AI/monthly/monthly-AI/full-sync/db-backup 任務已排入）" )
 
     def stop( self ) -> None:
         """停止背景排程器。"""
@@ -273,6 +291,15 @@ class AutoScheduler:
                 _Results.append( ( "❌ 月度復盤", str( _Err ) ) )
                 _logger.error( f"[run_once] retrospective ERROR: {_Err}" )
 
+        # ── DB Backup（每天）──────────────────────────────────
+        try:
+            _Detail = self._exec_db_backup()
+            _Results.append( ( "✅ 資料庫備份", f"已完成：{_Detail}" ) )
+            _logger.info( f"[run_once] db_backup OK → {_Detail}" )
+        except Exception as _Err:
+            _Results.append( ( "❌ 資料庫備份", str( _Err ) ) )
+            _logger.error( f"[run_once] db_backup ERROR: {_Err}" )
+
         # ── Full Sync（每週日）──────────────────────────────────
         if _Today.weekday() == 6:
             try:
@@ -318,6 +345,8 @@ class AutoScheduler:
             "vector-sync":            lambda: self._exec_vector_sync(),
             "morning-brief":          lambda: self._exec_morning_brief( _Date ),
             "monthly-retrospective":  lambda: self._exec_retrospective(),
+            "db-backup":              lambda: self._exec_db_backup(),
+            "extract-sessions":       lambda: self._exec_extract_sessions(),
         }
 
         _Handler = _Handlers.get( iTaskId )
@@ -425,6 +454,25 @@ class AutoScheduler:
         _Deleted = _Result.get( "index_stats", {} ).get( "num_deleted", 0 )
         return f"清除孤立向量 {_Deleted} 筆"
 
+    def _run_db_backup( self ) -> None:
+        """每天 03:00 自動備份 ChromaDB。"""
+        _logger.info( "[AutoScheduler] _run_db_backup → start" )
+        try:
+            _Detail = self._exec_db_backup()
+            _logger.info( f"[AutoScheduler] db_backup OK → {_Detail}" )
+        except Exception as _Err:
+            _logger.error( f"[AutoScheduler] db_backup ERROR: {_Err}" )
+
+    def _exec_db_backup( self ) -> str:
+        """run_task 用：執行 ChromaDB 備份 + 清理舊備份，回傳結果摘要。"""
+        from services.backup import BackupService
+        _Svc = BackupService( self.m_Config )
+        _Path, _Err = _Svc.backup_chromadb()
+        if _Err:
+            raise RuntimeError( _Err )
+        _Cleaned = _Svc.cleanup()
+        return f"備份至 {_Path}，清除 {_Cleaned} 份舊備份"
+
     def _exec_morning_brief( self, iDate: str ) -> str:
         """
         run_task 用：產生早安簡報（今日待辦 + 排程任務狀態）。
@@ -489,5 +537,42 @@ class AutoScheduler:
         from services.instinct import InstinctService
         _Svc = InstinctService( self.m_Config )
         return _Svc.generate_retrospective()
+
+    def _exec_extract_sessions( self ) -> str:
+        """
+        run_task 用：從 VS Code chatSessions/*.jsonl 提取 Q&A 對話到 Vault conversations/。
+        不消耗任何 LLM Token。
+        """
+        from services.session_extractor import SessionExtractor
+
+        _ChatDir   = self.m_Config.vscode_chat_dir
+        _VaultPath = self.m_Config.vault_path
+
+        if not _ChatDir:
+            return "vscode_chat_dir 未設定，請於 config.json 或 setup 中設定 VS Code chatSessions 路徑"
+
+        # 取得預設組織與專案（使用第一個組織 + 存在 status.md 的第一個專案）
+        import os
+        _Org     = ""
+        _Project = ""
+        _Orgs    = self.m_Config.user.organizations
+        if _Orgs:
+            _Org = _Orgs[0]
+            _ProjsDir = os.path.join( _VaultPath, "workspaces", _Org, "projects" )
+            if os.path.isdir( _ProjsDir ):
+                for _P in sorted( os.listdir( _ProjsDir ) ):
+                    if os.path.isfile( os.path.join( _ProjsDir, _P, "status.md" ) ):
+                        _Project = _P
+                        break
+
+        if not _Org or not _Project:
+            return "找不到有效的組織/專案，請確認 config.json 的 user.organizations 設定"
+
+        _Extractor = SessionExtractor( _ChatDir, _VaultPath )
+        _Count     = _Extractor.extract_new( _Org, _Project )
+
+        if _Count == 0:
+            return "沒有新增的對話，watermark 已是最新"
+        return f"已提取 {_Count} 個 session 的新 Q&A 對話至 conversations/"
 
     #endregion

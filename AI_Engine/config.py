@@ -18,19 +18,20 @@ from typing import Optional
 
 # ── 路徑常數 ──────────────────────────────────────────────
 # ENGINE_DIR：程式所在目錄（frozen = exe 旁；dev = AI_Engine/）
-# DATA_DIR  ：可寫資料目錄（frozen = %APPDATA%\AI-Memory-Vault；dev = ENGINE_DIR）
-#   分離原因：exe 放 Program Files 時為唯讀，資料需獨立存放
+# DATA_DIR  ：可寫資料目錄（統一使用 %APPDATA%\AI-Memory-Vault）
+#   dev 與 frozen 共用同一目錄，避免 config / chroma_db / vault_meta 各自獨立導致不同步。
+#   所有模式均可透過 VAULT_DATA_DIR 環境變數覆蓋 DATA_DIR
+_ENV_DATA = os.environ.get( 'VAULT_DATA_DIR' )
 if getattr( sys, 'frozen', False ):
     ENGINE_DIR: Path = Path( sys.executable ).resolve().parent
-    DATA_DIR:   Path = Path( os.environ.get( 'APPDATA', str( ENGINE_DIR ) ) ) / "AI-Memory-Vault"
-    DATA_DIR.mkdir( parents=True, exist_ok=True )
 else:
     ENGINE_DIR: Path = Path( __file__ ).resolve().parent
-    DATA_DIR:   Path = ENGINE_DIR
+DATA_DIR: Path = Path( _ENV_DATA ) if _ENV_DATA else Path( os.environ.get( 'APPDATA', str( ENGINE_DIR ) ) ) / "AI-Memory-Vault"
+DATA_DIR.mkdir( parents=True, exist_ok=True )
 PROJECT_ROOT: Path = ENGINE_DIR.parent
 CONFIG_FILE:  Path = DATA_DIR / "config.json"
 
-__version__: str = "3.6.0"
+__version__: str = "3.7.0"
 
 
 # region 設定資料結構
@@ -350,6 +351,9 @@ class AppConfig:
     vault_path: str = ""
     ## <summary>VS Code / Cursor 全域使用者設定目錄（含 prompts/ 子目錄）</summary>
     vscode_user_path: str = ""
+    ## <summary>VS Code chatSessions 目錄（用於 session_extractor 零 Token 對話提取）
+    ## 格式：%APPDATA%\Code\User\workspaceStorage\<workspace-id>\chatSessions</summary>
+    vscode_chat_dir: str = ""
     ## <summary>Vault 目錄路徑對照表</summary>
     paths: VaultPaths = field( default_factory=VaultPaths )
     ## <summary>使用者資訊</summary>
@@ -435,6 +439,7 @@ class ConfigManager:
             version=_Raw.get( "version", "3.0" ),
             vault_path=_Raw.get( "vault_path", "" ),
             vscode_user_path=_Raw.get( "vscode_user_path", "" ),
+            vscode_chat_dir=_Raw.get( "vscode_chat_dir", "" ),
             paths=VaultPaths( **_Raw.get( "paths", {} ) ),
             user=UserConfig( **_UserRaw ),
             llm=LLMConfig( **_Raw.get( "llm", {} ) ),

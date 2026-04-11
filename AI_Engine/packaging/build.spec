@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-AI Memory Vault v3.5 — PyInstaller Build Spec
+AI Memory Vault v3.7 — PyInstaller Build Spec
 
 產出三個 exe（共用同一份 library 目錄，節省磁碟空間）：
   dist/vault-ai/vault-cli.exe       → 互動式 CLI（consoleTrue）
@@ -16,7 +16,7 @@ exe 名稱偵測邏輯（main.py _detect_frozen_mode）：
   pyinstaller build.spec            （在 AI_Engine/ 目錄下）
   .\build.ps1                       （一鍵打包腳本）
 
-@version 3.4.0
+@version 3.7.0
 """
 
 import os
@@ -31,40 +31,37 @@ ENGINE_DIR = os.path.abspath( os.path.join( SPECPATH, '..' ) )
 # ── 動態收集複雜套件的資料檔 + 隱藏 import ─────────────────
 # chromadb：SQL migrations + segment 動態載入
 _datas_chroma,  _bins_chroma,  _hi_chroma  = collect_all( 'chromadb' )
-# sentence_transformers：tokenizer 設定
-_datas_st,      _bins_st,      _hi_st      = collect_all( 'sentence_transformers' )
 # mcp SDK：schema 資料
 _datas_mcp,     _bins_mcp,     _hi_mcp     = collect_all( 'mcp' )
-# huggingface_hub：模型快取管理（比 collect_all('transformers') 安全）
+# huggingface_hub：模型快取管理（_OnnxEmbeddings 用 hf_hub_download 下載模型）
 _datas_hf,      _bins_hf,      _hi_hf      = collect_all( 'huggingface_hub' )
+# onnxruntime：frozen exe 嵌入模型推論後端（直接推理，不經 torch/sentence_transformers）
+_datas_ort,     _bins_ort,     _hi_ort     = collect_all( 'onnxruntime' )
+# NOTE: sentence_transformers 已移除 — frozen exe 使用 _OnnxEmbeddings 繞過 torch
+# NOTE: torch 已移除 — frozen exe 由 main.py torch stub 攔截所有 import torch
 
 ALL_DATAS = (
     _datas_chroma
-    + _datas_st
     + _datas_mcp
     + _datas_hf
+    + _datas_ort
     + [ ( os.path.join( ENGINE_DIR, '.env.example' ), '.' ),
         ( os.path.join( ENGINE_DIR, 'requirements.txt' ), '.' ) ]
 )
-ALL_BINS = _bins_chroma + _bins_st + _bins_mcp + _bins_hf
+ALL_BINS = _bins_chroma + _bins_mcp + _bins_hf + _bins_ort
 
 HIDDEN_IMPORTS = (
     _hi_chroma
-    + _hi_st
     + _hi_mcp
     + _hi_hf
+    + _hi_ort
     + [
-        # torch.distributed：torch.utils.data.dataloader 啟動時就需要，不可排除
-        'torch.distributed',
-        'torch.distributed.elastic',
-        'torch.distributed.elastic.multiprocessing',
-        # tokenizers（sentence_transformers 依賴，二進位延遲 import）
+        # tokenizers（_OnnxEmbeddings 使用 tokenizers 進行分詞）
         'tokenizers',
         'tokenizers.models',
         'tokenizers.pre_tokenizers',
         # safetensors（模型載入需要）
         'safetensors',
-        'safetensors.torch',
         # filelock（HuggingFace 快取鎖）
         'filelock',
         # SQLAlchemy（RecordManager 使用）
@@ -77,11 +74,12 @@ HIDDEN_IMPORTS = (
         'langchain_core.documents',
         'langchain_core.embeddings',
         'langchain_core.vectorstores',
-        'langchain_huggingface',
         'langchain_chroma',
         'langchain_text_splitters',
         'langchain_community.document_loaders',
         'langchain_community.document_loaders.text',
+        # ONNX Runtime（frozen exe 用直接推理替代 torch）
+        'onnxruntime',
         # APScheduler
         'apscheduler',
         'apscheduler.schedulers.background',
@@ -118,6 +116,12 @@ HIDDEN_IMPORTS = (
         'services.git_service',
         'services.knowledge_extractor',
         'services.token_counter',
+        'services.instinct',
+        'services.backup',
+        'services._vault',
+        'services._vault.index_ops',
+        'services._vault.note_ops',
+        'services._vault.search_ops',
         'mcp_app',
         'mcp_app.server',
         'mcp_app.utils',
@@ -128,11 +132,11 @@ HIDDEN_IMPORTS = (
         'mcp_app.tools.todo_tools',
         'mcp_app.tools.index_tools',
         'mcp_app.tools.agent_tools',
+        'mcp_app.tools.instinct_tools',
+        'core.frontmatter',
         'cli',
         'cli.repl',
         'cli.setup_commands',
-        'tools',
-        'tools.registry',
         # 其他工具
         'yaml',
         'pydantic',
@@ -160,9 +164,12 @@ a = Analysis(
         'numpy.testing', 'unittest',
         'pytest', 'setuptools', 'pkg_resources',
         'notebook', 'nbformat', 'nbconvert',
-        'torchaudio', 'torchvision',
-        'torch.testing', 'torch.utils.benchmark',
-        # torch.distributed 已移至 hiddenimports，不可排除（dataloader 啟動需要它）
+        # ── torch 全系列排除（main.py torch stub 在 runtime 攔截）───
+        'torch', 'torchaudio', 'torchvision',
+        # ── sentence_transformers 排除（frozen exe 用 _OnnxEmbeddings 替代）───
+        'sentence_transformers',
+        # ── langchain_huggingface 排除（僅 dev mode 使用）───
+        'langchain_huggingface',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -185,8 +192,9 @@ exe_cli = EXE(
     icon=None,
 )
 
-# ── vault-mcp.exe（MCP stdio，無終端視窗）───────────────────
-# console=False：VS Code 以 subprocess 啟動，stdin/stdout 作為 pipe 傳輸 JSON-RPC
+# ── vault-mcp.exe（MCP stdio，需要 console 以保留 stdin/stdout pipe）────
+# console=True：VS Code 以 stdio subprocess 啟動，stdin/stdout 必須為有效的 pipe
+# console=False 會導致 Windows 上 stdin/stdout 無效 → STATUS_STACK_BUFFER_OVERRUN
 exe_mcp = EXE(
     pyz, a.scripts, [],
     exclude_binaries=True,
@@ -195,7 +203,7 @@ exe_mcp = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,
+    console=True,
     icon=None,
 )
 

@@ -137,7 +137,7 @@ class TestWriteNoteMode:
         _Result = write_note( "knowledge/test.md", "hello" )
 
         assert _FakeOkVault._last_mode == "overwrite"
-        assert "Written:" in _Result
+        assert "已寫入" in _Result
 
     def test_append_mode_passed( self, monkeypatch ):
         """write_note(mode='append') 應將 mode 傳入 VaultService.write_note。"""
@@ -149,7 +149,7 @@ class TestWriteNoteMode:
         _Result = write_note( "knowledge/test.md", "extra content", mode="append" )
 
         assert _FakeOkVault._last_mode == "append"
-        assert "Written:" in _Result
+        assert "已寫入" in _Result
 
     def test_error_returns_error_string( self, monkeypatch ):
         """VaultService 回傳錯誤時，write_note 應回傳錯誤訊息字串。"""
@@ -171,7 +171,7 @@ class TestWriteNoteMode:
         write_note = mcp._tool_manager._tools["write_note"].fn
         _Result = write_note( "knowledge/test.md", "hello world" )
 
-        assert "chars" in _Result or "Written:" in _Result
+        assert "字元" in _Result or "已寫入" in _Result
 
 
 # ────────────────────────────────────────────────────────────
@@ -191,8 +191,7 @@ class TestCheckIndexStatus:
         check_index_status = mcp._tool_manager._tools["check_index_status"].fn
         _Result = check_index_status()
 
-        assert "up-to-date" in _Result
-        assert "reindex" not in _Result.lower() or "No reindex needed" in _Result
+        assert "無需重建" in _Result or "up-to-date" in _Result
 
     def test_out_of_date_contains_warning( self, monkeypatch ):
         """索引需更新時，應回傳警告與變更說明。"""
@@ -261,7 +260,7 @@ class TestReindexVault:
         reindex_vault = mcp._tool_manager._tools["reindex_vault"].fn
         _Result = reindex_vault()
 
-        assert "Reindex complete:" in _Result
+        assert "重建完成" in _Result
 
     def test_success_contains_chunk_stats( self, monkeypatch ):
         """回傳訊息應含 chunks 與 files 統計。"""
@@ -277,7 +276,7 @@ class TestReindexVault:
         _Result = reindex_vault()
 
         assert "chunks" in _Result
-        assert "files" in _Result
+        assert "檔案" in _Result or "files" in _Result
 
     def test_reset_fail_returns_error( self, monkeypatch ):
         """reset_index 回傳 False 時，應回傳 Error 字串（不繼續 sync）。"""
@@ -301,7 +300,7 @@ class TestReindexVault:
         reindex_vault = mcp._tool_manager._tools["reindex_vault"].fn
         _Result = reindex_vault()
 
-        assert "Error" in _Result
+        assert "❌" in _Result or "Error" in _Result
         assert "disk full" in _Result
         assert not _SyncCalled, "sync() 不應在 reset_index 失敗後被呼叫"
 
@@ -338,4 +337,4 @@ class TestReindexVault:
         reindex_vault = mcp._tool_manager._tools["reindex_vault"].fn
         _Result = reindex_vault()
 
-        assert "Added=" in _Result
+        assert "新增=" in _Result or "Added=" in _Result

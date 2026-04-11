@@ -66,11 +66,12 @@ def register( mcp, get_sched ):
     @mcp.tool()
     @suppress_stdout
     def log_ai_conversation(
-        organization: str,
-        project: str,
-        session_name: str,
-        content: str,
-        detail: Optional[dict] = None,
+        organization:      str,
+        project:           str,
+        session_name:      str,
+        content:           str,
+        detail:            Optional[dict] = None,
+        vscode_session_id: str = "",
     ) -> str:
         """
         記錄一次 AI 對話至指定專案的 conversations/ 目錄。
@@ -78,19 +79,85 @@ def register( mcp, get_sched ):
         project: 專案名稱（例如 ai-memory-vault）。
         session_name: 對話主題名（例如 vault-setup）。
         content: 對話摘要內容（Markdown 格式）。
-        detail: （選填）結構化詳細紀錄 dict，可包含以下欄位：
+
+        vscode_session_id: （選填）VS Code chatSession UUID。
+          若提供，自動從 chatSessions/JSONL 解析 files_changed + commands 填入 detail，
+          AI 只需填 topic / problems / learnings / decisions / interaction_issues。
+
+        detail: （選填）結構化詳細紀錄 dict。可包含：
           - topic (str): 對話主題
-          - qa_pairs (list): 關鍵問答 [{"question", "analysis", "decision", "alternatives"}]
-          - files_changed (list): 修改的檔案 [{"path", "action", "summary"}]
-          - commands (list): 執行的命令 [{"command", "purpose", "result"}]
+          - qa_pairs (list)  ← 若有 vscode_session_id 可省略（session 檔已含完整 Q&A）
+          - files_changed (list) ← 若有 vscode_session_id 可省略（自動提取）
+          - commands (list)      ← 若有 vscode_session_id 可省略（自動提取）
           - problems (list): 問題與解決 [{"problem", "cause", "solution"}]
           - learnings (list): 學到的知識 (str 列表)
           - decisions (list): 決策記錄 [{"decision", "options", "chosen", "reason"}]
+          - interaction_issues (list): 互動問題 [{"type", "description", ...}]
         """
+        # ── 若提供 vscode_session_id，自動補全 files_changed + commands ──
+        if vscode_session_id:
+            from config import AppConfig, ConfigManager
+            _Config = ConfigManager.load()
+            if _Config.vscode_chat_dir:
+                from services.session_extractor import SessionExtractor
+                _SE   = SessionExtractor( _Config.vscode_chat_dir, _Config.vault_path )
+                _Meta = _SE.extract_metadata( vscode_session_id )
+                detail = detail or {}
+                if _Meta.get( "files_changed" ) and not detail.get( "files_changed" ):
+                    detail[ "files_changed" ] = _Meta[ "files_changed" ]
+                if _Meta.get( "commands" ) and not detail.get( "commands" ):
+                    detail[ "commands" ] = _Meta[ "commands" ]
+
         _Path = get_sched().log_conversation(
             organization, project, session_name, content, detail
         )
         return f"AI 對話已記錄：{_Path}"
+
+    @mcp.tool()
+    @suppress_stdout
+    def extract_session_script(
+        session_id:     str,
+        script_type:    str = "powershell",
+        output_to_file: bool = False,
+        organization:   str = "",
+        project:        str = "",
+    ) -> str:
+        """
+        從指定 VS Code chatSession 提取所有 terminal 指令，輸出為可執行腳本。
+        可用於將「AI 探索通的流程」固化為 0-Token 腳本。
+
+        session_id: VS Code chatSession UUID（vscode_sessions_watermark.json 中可查）。
+        script_type: "powershell"（預設）| "python"。
+        output_to_file: True 時將腳本寫入 Vault conversations/ 目錄旁的 scripts/ 資料夾。
+        organization: output_to_file=True 時需提供。
+        project: output_to_file=True 時需提供。
+        """
+        from config import ConfigManager
+        _Config = ConfigManager.load()
+        if not _Config.vscode_chat_dir:
+            return "錯誤：config.json 未設定 vscode_chat_dir"
+
+        from services.session_extractor import SessionExtractor
+        _SE     = SessionExtractor( _Config.vscode_chat_dir, _Config.vault_path )
+        _Script = _SE.extract_script( session_id, script_type )
+
+        if not _Script:
+            return f"Session {session_id[:8]} 中無 terminal 指令可提取"
+
+        if output_to_file and organization and project:
+            from pathlib import Path
+            _Dir = (
+                Path( _Config.vault_path )
+                / "workspaces" / organization / "projects" / project / "scripts"
+            )
+            _Dir.mkdir( parents=True, exist_ok=True )
+            _Ext  = ".ps1" if script_type == "powershell" else ".py"
+            _File = _Dir / f"extracted-{session_id[:8]}{_Ext}"
+            _File.write_text( _Script, encoding="utf-8" )
+            return f"腳本已寫入：{_File}\n\n```{script_type}\n{_Script}\n```"
+
+        return f"```{script_type}\n{_Script}\n```"
+
 
     @mcp.tool()
     @suppress_stdout

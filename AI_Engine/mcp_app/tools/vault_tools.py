@@ -124,11 +124,12 @@ def register( mcp ):
 
     @mcp.tool()
     @suppress_stdout
-    def list_notes( path: str = "", recursive: bool = False ) -> str:
+    def list_notes( path: str = "", recursive: bool = False, max_results: int = 50 ) -> str:
         """
         列出 Vault 中指定目錄下所有 .md 檔案，方便在 read_note 前先探索結構。
         - path：相對於 Vault 根目錄的目錄路徑（空字串 = 根目錄）。
         - recursive：True = 遞迴包含所有子目錄；False（預設）= 僅目前層。
+        - max_results：最多回傳幾筆（預設 50），避免大目錄浪費 Token。
         """
         import datetime
         from services.vault import VaultService
@@ -138,14 +139,18 @@ def register( mcp ):
         _Total = _Result["total"]
         if _Total == 0:
             return f"找不到任何 .md 檔案：'{path or '/'}' ({'遞迴' if recursive else '非遞迴'})"
+        _Notes = _Result["notes"][:max_results]
+        _Truncated = _Total > max_results
         _Lines = [
-            f"### {_Result['path']}  （{_Total} 個檔案{'  遞迴' if recursive else ''}）",
+            f"### {_Result['path']}  （顯示 {len(_Notes)}/{_Total} 個檔案{'  遞迴' if recursive else ''}）",
             "",
         ]
-        for _N in _Result["notes"]:
+        for _N in _Notes:
             _Dt = datetime.datetime.fromtimestamp( _N["modified"] ).strftime( "%Y-%m-%d" )
             _Kb = f"{_N['size'] / 1024:.1f}KB" if _N["size"] >= 1024 else f"{_N['size']}B"
             _Lines.append( f"- `{_N['path']}`  ({_Kb}, {_Dt})" )
+        if _Truncated:
+            _Lines.append( f"\n> ⚠️ 還有 {_Total - max_results} 個檔案未顯示，請縮小 path 範圍或增加 max_results。" )
         return "\n".join( _Lines )
 
     @mcp.tool()

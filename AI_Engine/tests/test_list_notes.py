@@ -192,7 +192,7 @@ class TestMcpListNotes:
             classmethod( lambda cls, p, r: ( {"path": path_used, "recursive": False, "total": 0, "notes": []}, None ) ) )
         path_used = "emptydir"
         _Out = self._S.mcp._tool_manager._tools["list_notes"].fn( path="emptydir", recursive=False )
-        assert "No .md files" in _Out or "0" in _Out
+        assert "找不到" in _Out or "0" in _Out
 
     def test_files_listed( self, monkeypatch ):
         import services.vault as _V
@@ -228,7 +228,7 @@ class TestMcpListNotes:
         monkeypatch.setattr( _V.VaultService, "list_notes",
             classmethod( lambda cls, p, r: ( None, "directory not found — bad/dir" ) ) )
         _Out = self._S.mcp._tool_manager._tools["list_notes"].fn( path="bad/dir" )
-        assert "Error" in _Out or "error" in _Out
+        assert "❌" in _Out or "error" in _Out.lower()
 
     def test_exception_caught( self, monkeypatch ):
         import services.vault as _V

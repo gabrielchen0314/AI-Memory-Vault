@@ -2,15 +2,15 @@
 ; 需要 Inno Setup 6.x：https://jrsoftware.org/isdl.php
 ;
 ; 目錄設計：
-;   程式目錄  {autopf}\AI-Memory-Vault\      (Program Files, read-only)
+;   程式目錄  {autopf}\AI Memory Vault\      (Program Files 64-bit, read-only)
 ;   使用者資料 {userappdata}\AI-Memory-Vault\  (由 exe 自動建立，安裝程式不管)
 ;   知識庫     使用者 Setup Wizard 時自訂
 ;
 ; @author gabrielchen
-; @version 3.4.0
+; @version 3.7.0
 
 #define AppName      "AI Memory Vault"
-#define AppVersion   "3.5.0"
+#define AppVersion   "3.7.0"
 #define AppPublisher "LIFEOFDEVELOPMENT"
 #define AppURL       "https://github.com/lifeofdevelopment/ai-memory-vault"
 #define AppExe       "vault-cli.exe"
@@ -27,6 +27,8 @@ AppUpdatesURL={#AppURL}
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 AllowNoIcons=yes
+; 64 位元模式：安裝到 Program Files（非 x86）
+ArchitecturesInstallIn64BitMode=x64compatible
 ; 輸出設定
 OutputDir=..\dist
 OutputBaseFilename=AI-Memory-Vault-Setup-v{#AppVersion}

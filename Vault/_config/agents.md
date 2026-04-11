@@ -2,7 +2,7 @@
 type: system
 inject: true
 created: 2026.04.01
-last_updated: 2026.04.10
+last_updated: 2026.04.11
 ---
 
 ## 🌐 語言規定
@@ -39,6 +39,10 @@ Step 3：（若需要操作型知識）→ load_skill(相關 Skill 名稱)
 | 提交程式碼 / 整理 Commit | `@GitCommitter` |
 | 更新文件 / API Map | `@DocUpdater` |
 | 犯錯後 / 學到新知 / 建立直覺 | `@LearnTrigger` |
+| 建立或維護 Agent Skill | `@SkillAuthor` |
+| 月度復盤 / 直覺系統分析 / 跨月趨勢 | `@Retrospective` |
+| 建立 Redmine 工單 | `@RmIssueCreator` |
+| Redmine 進度追蹤 / 延誤分析 / 資源調配 | `@RmTracker` |
 
 > **自動偵測原則**：若對話中出現多個任務類型，主導任務決定 Agent；
 > 次要任務（如：實作後審查）在完成後切換至對應 Agent。
@@ -52,7 +56,7 @@ Step 3：（若需要操作型知識）→ load_skill(相關 Skill 名稱)
 
 ---
 
-## 可用工具（39 個，v3.6）
+## 可用工具（40 個，v3.7）
 
 ### Vault 筆記操作
 
@@ -108,6 +112,7 @@ Step 3：（若需要操作型知識）→ load_skill(相關 Skill 名稱)
 | `clean_orphans` | 外科手術清除孤立向量 | Yes |
 | `check_index_status` | 索引設定比對（是否需重建） | No |
 | `reindex_vault` | 清除並重建索引 | Yes |
+| `backup_chromadb` | ChromaDB ZIP 備份（含自動清理保留 7 份） | Yes |
 
 ### Agent 與 Skill 管理
 
@@ -195,10 +200,11 @@ created: "YYYY-MM-DD"
 
 ### 建立 Instinct 的時機
 
-1. **犯錯後**：`log_ai_conversation` 的 `detail.problems` 揭示可避免的錯誤
+1. **犯錯後**：`detail.problems` 揭示可避免的錯誤
 2. **學到新知**：`detail.learnings` 包含值得記住的模式
 3. **重複問題**：同類問題第二次出現時，信心度提升
-4. **開發者指正**：被使用者糾正後，記錄正確做法
+4. **開發者指正**：`detail.interaction_issues` 中 type=correction 的項目 → 記錄使用者期望的正確做法
+5. **溝通誤解**：`detail.interaction_issues` 中反覆出現的 misunderstanding 模式 → 記錄避免誤判的規則
 
 ---
 
@@ -217,43 +223,74 @@ created: "YYYY-MM-DD"
 
 ## 收工 SOP 標準流程
 
+> **⚠️ 觸發條件：僅在使用者明確說「收工」時才執行。**
+> 不可在對話中途自動執行，避免消耗不必要的 Token。
+
 ```
 1. generate_project_daily(org, project)           → 建立今日進度模板（冪等）
 2. log_ai_conversation(..., detail={...})         → 對話摘要 + 結構化詳細紀錄
 3. 萃取直覺（從步驟 2 的 detail 判斷）：
    - detail.problems 有可避免錯誤 → create_instinct
    - detail.learnings 有值得記住的模式 → create_instinct
+   - detail.interaction_issues 有使用者糾正 → create_instinct（記錄正確做法）
    - 已有相關直覺被驗證成功/失敗 → update_instinct(±0.1)
 4. write_note(status.md, overwrite)               → 更新待辦事項
 5. generate_daily_review(date, projects=[])       → 更新每日總進度（永遠覆寫）
 ```
 
-### log_ai_conversation 參數說明
+### log_ai_conversation 參數說明（v3.7 精簡版）
+
+> **提供 `vscode_session_id` 後，`qa_pairs` / `files_changed` / `commands` 全部自動提取，AI 只需填寫 4 個欄位。**
 
 ```
 log_ai_conversation(
-  organization = "LIFEOFDEVELOPMENT",
-  project      = "ai-memory-vault",
-  session_name = "api-map-planning",
-  content      = "## 對話摘要\n...",      ← 簡短摘要（必填）
-  detail       = {                        ← 結構化詳細紀錄（選填）
-    "topic":         "API Map 規劃與實作",
-    "qa_pairs":      [{"question": "...", "analysis": "...", "decision": "...", "alternatives": "..."}],
-    "files_changed": [{"path": "path/to/file", "action": "修改", "summary": "..."}],
-    "commands":      [{"command": "...", "purpose": "...", "result": "成功"}],
-    "problems":      [{"problem": "...", "cause": "...", "solution": "..."}],
-    "learnings":     ["..."],
-    "decisions":     [{"decision": "...", "options": "A / B", "chosen": "A", "reason": "..."}]
+  organization      = "LIFEOFDEVELOPMENT",
+  project           = "ai-memory-vault",
+  session_name      = "api-map-planning",
+  content           = "## 對話摘要\n...",            ← 簡短摘要（必填）
+  vscode_session_id = "ea20f4c8-3acc-4bc3-a100-...", ← 從系統提示 VSCODE_TARGET_SESSION_LOG 路徑取 UUID
+  detail = {
+    "topic":    "主題描述",                           ← AI 填
+    "problems": [{"problem": "...", "cause": "...", "solution": "..."}],  ← AI 填
+    "learnings":["..."],                              ← AI 填
+    "decisions":[{"decision":"...","options":"A/B","chosen":"A","reason":"..."}], ← AI 填
+    "interaction_issues": [                           ← AI 填（如有誤解）
+      {
+        "type":        "misunderstanding | correction | ambiguity | over-action | missed-intent",
+        "description": "發生了什麼",
+        "user_intent": "使用者原本想要",
+        "ai_behavior": "AI 實際做了什麼",
+        "root_cause":  "為什麼誤判",
+        "resolution":  "如何解決",
+        "prevention":  "未來如何避免"
+      }
+    ]
+    // qa_pairs     ← 省略（vscode session 檔已含完整 Q&A）
+    // files_changed← 省略（自動從 JSONL 提取）
+    // commands     ← 省略（自動從 JSONL 提取）
   }
 )
 ```
 
-> **AI 使用指南**：detail 的所有欄位都是選填，有多少填多少。
-> AI 應從 conversation summary、工作記憶、tool call 紀錄中自動萃取。
+> **如何取得 session_id**：系統提示中的 `VSCODE_TARGET_SESSION_LOG` 路徑包含 UUID，
+> 例如 `...chatSessions\ea20f4c8-3acc-4bc3-a100-d6d5a9f3cfb6` → session_id = `ea20f4c8-3acc-4bc3-a100-d6d5a9f3cfb6`
 
----
+### 將流程固化為腳本（0 Token）
 
-## Coding 規則索引
+```
+extract_session_script(
+  session_id     = "ea20f4c8-...",
+  script_type    = "powershell",   ← 或 "python"
+  output_to_file = True,           ← True 時寫入 Vault/scripts/
+  organization   = "LIFEOFDEVELOPMENT",
+  project        = "ai-memory-vault",
+)
+```
+
+> 自動提取 session 中所有 terminal 指令 → 可直接執行的 `.ps1` / `.py` 腳本。
+> 適合「全固定流程、不需 AI 判斷」的重複性任務。執行後就是 0 Token。
+
+
 
 > 所有規則集中在 `workspaces/_global/rules/`（全域）與 `workspaces/{組織}/rules/`（組織特例）。
 > 使用 `search_vault(query="type:rule", top_k=30)` 動態發現最新規則清單。

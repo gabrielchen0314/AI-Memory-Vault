@@ -73,17 +73,44 @@ def _load_vault_instructions() -> str:
 
         if not _Raw.startswith( "---" ):
             continue
-        _End = _Raw.find( "---", 3 )
-        if _End == -1:
-            continue
-        _Frontmatter = _Raw[3:_End]
-        if "inject: true" not in _Frontmatter:
+        from core.frontmatter import has_field
+        if not has_field( _Raw, "inject", "true" ):
             continue
 
         _Label = _FileName[:-3]
         _Sections.append( f"## {_Label}\n\n{_Raw}" )
 
     return "\n\n---\n\n".join( _Sections ) if _Sections else ""
+
+
+# ── Post-Write Hooks ──────────────────────────────────────
+def _on_vault_write( iRelPath: str ) -> None:
+    """
+    VaultService 寫入後自動回呼。
+    - conversations/ 寫入 → 記錄 log（knowledge extractor 可用此觸發）
+    - knowledge/ 寫入 → 使 Instinct 搜尋快取失效
+    """
+    if "/conversations/" in iRelPath:
+        _logger.debug( f"Post-write hook: conversation written → {iRelPath}" )
+    elif iRelPath.startswith( "knowledge/" ):
+        _logger.debug( f"Post-write hook: knowledge card written → {iRelPath}" )
+    elif iRelPath.startswith( "personal/instincts/" ):
+        if _g_Instinct is not None and hasattr( _g_Instinct, "_cached_config" ):
+            _g_Instinct._cached_config = None
+            _logger.debug( "Post-write hook: instinct written → cache invalidated" )
+
+
+def _register_write_hooks() -> None:
+    """在 MCP Server 啟動時註冊 post-write hooks。"""
+    from services.vault import VaultService
+    VaultService.register_post_write_hook( _on_vault_write )
+    _logger.info( "Post-write hooks registered" )
+
+
+def _unregister_write_hooks() -> None:
+    """在 MCP Server 關閉時移除 post-write hooks。"""
+    from services.vault import VaultService
+    VaultService.unregister_post_write_hook( _on_vault_write )
 
 
 # ── Lifespan ───────────────────────────────────────────────
@@ -106,11 +133,13 @@ async def _lifespan( _ ) -> AsyncIterator[None]:
             _Config      = ConfigManager.load()
             _g_Scheduler = SchedulerService( _Config )
             _g_Instinct  = InstinctService( _Config )
+            _register_write_hooks()
             _logger.info( "SchedulerService + InstinctService singletons initialized" )
     except Exception as _E:
         _logger.warning( "Failed to init services: %s", _E )
     yield
     # ── shutdown ───────────────────────────────────
+    _unregister_write_hooks()
     _g_Scheduler = None
     _g_Instinct  = None
 
@@ -158,11 +187,30 @@ instinct_tools.register( mcp, _get_instinct )
 
 _logger.info(
     "MCP tools registered: vault=%d, scheduler=%d, project=%d, todo=%d, index=%d, agent=%d, instinct=%d → total=%d",
-    10, 10, 3, 3, 4, 4, 5,
-    10 + 10 + 3 + 3 + 4 + 4 + 5,
+    10, 10, 3, 3, 5, 4, 5,
+    10 + 10 + 3 + 3 + 5 + 4 + 5,
 )
 
 
 def run_mcp_server() -> None:
     """啟動 MCP stdio 伺服器。"""
     mcp.run( transport="stdio" )
+
+
+def run_mcp_sse_server( iHost: str = "127.0.0.1", iPort: int = 8765 ) -> None:
+    """
+    啟動 MCP SSE 伺服器（HTTP 長連線）。
+    供 Web UI、Chatbot、外部 HTTP Client 透過 SSE 連線呼叫 MCP 工具。
+
+    Args:
+        iHost: 監聽的 host（預設 127.0.0.1 僅本機）。
+        iPort: 監聽的 port（預設 8765）。
+    """
+    import uvicorn
+    _logger.info( f"Starting MCP SSE server on {iHost}:{iPort}" )
+    uvicorn.run(
+        mcp.sse_app(),
+        host=iHost,
+        port=iPort,
+        log_level="info",
+    )

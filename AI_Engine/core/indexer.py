@@ -16,13 +16,24 @@ from core.logger import get_logger
 _logger = get_logger( __name__ )
 
 import yaml
-from langchain_community.document_loaders import DirectoryLoader, TextLoader
-from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
-from langchain_core.indexing import index as langchain_index
 from langchain_core.documents import Document
 
 from config import CATEGORY_MAP, CATEGORY_UNKNOWN, EXCLUDE_DIRS, FRONTMATTER_FIELDS
 from .vectorstore import get_vectorstore, get_record_manager
+
+# ── 延遲匯入（避免 frozen exe 在 import 階段觸發 C extension crash）──
+def _get_splitters():
+    """延遲載入 text splitters。torch stub 已確保 transformers import 不崩潰。"""
+    from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
+    return MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
+
+def _get_langchain_index():
+    from langchain_core.indexing import index as langchain_index
+    return langchain_index
+
+def _get_loaders():
+    from langchain_community.document_loaders import DirectoryLoader, TextLoader
+    return DirectoryLoader, TextLoader
 
 
 # ── Markdown 標題切塊設定 ─────────────────────────────────
@@ -40,9 +51,9 @@ class VaultIndexer:
     ## <summary>Vault 根目錄絕對路徑</summary>
     m_VaultRoot: str
     ## <summary>Markdown 標題切塊器（第一階）</summary>
-    m_Splitter: MarkdownHeaderTextSplitter
+    m_Splitter: object
     ## <summary>字元切塊器（第二階，處理超大 chunk）</summary>
-    m_CharSplitter: RecursiveCharacterTextSplitter
+    m_CharSplitter: object
     ## <summary>單一 chunk 最大字元數閾值</summary>
     m_ChunkSize: int
     #endregion
@@ -58,11 +69,12 @@ class VaultIndexer:
         """
         self.m_VaultRoot    = iVaultRoot
         self.m_ChunkSize    = iChunkSize
-        self.m_Splitter     = MarkdownHeaderTextSplitter(
+        _MdSplitter, _CharSplitter = _get_splitters()
+        self.m_Splitter     = _MdSplitter(
             headers_to_split_on=HEADERS_TO_SPLIT,
             strip_headers=False,
         )
-        self.m_CharSplitter = RecursiveCharacterTextSplitter(
+        self.m_CharSplitter = _CharSplitter(
             chunk_size=iChunkSize,
             chunk_overlap=iChunkOverlap,
             separators=[ "\n\n", "\n", "\uff0c", "\u3002", "\uff1b", " ", "" ],
@@ -79,10 +91,11 @@ class VaultIndexer:
         _logger.info( "🔄 正在掃描變動的筆記..." )
 
         # 1. 載入所有 .md 檔案
-        _Loader = DirectoryLoader(
+        _DirLoader, _TxtLoader = _get_loaders()
+        _Loader = _DirLoader(
             self.m_VaultRoot,
             glob="**/*.md",
-            loader_cls=TextLoader,
+            loader_cls=_TxtLoader,
             loader_kwargs={"encoding": "utf-8"},
         )
         _RawDocs = _Loader.load()
@@ -109,7 +122,8 @@ class VaultIndexer:
                 _TypeCounter[_DocType] = _TypeCounter.get( _DocType, 0 ) + len( _Chunks )
 
         # 4. 全量掃描寫入 ChromaDB（full 模式：清除不在本次掃描中的孤立向量）
-        _Stats = langchain_index(
+        _IndexFn = _get_langchain_index()
+        _Stats = _IndexFn(
             _TaggedChunks,
             get_record_manager(),
             get_vectorstore(),
@@ -160,7 +174,7 @@ class VaultIndexer:
         _Doc = Document( page_content=_Content, metadata={"source": iAbsPath} )
         _TaggedChunks = self._process_doc( _Doc )
 
-        _Stats = langchain_index(
+        _Stats = _get_langchain_index()(
             _TaggedChunks,
             get_record_manager(),
             get_vectorstore(),
@@ -245,7 +259,7 @@ class VaultIndexer:
                 "total_files": _FileCount,
             }
 
-        _Stats = langchain_index(
+        _Stats = _get_langchain_index()(
             _AllChunks,
             get_record_manager(),
             get_vectorstore(),
@@ -331,7 +345,7 @@ class VaultIndexer:
     @staticmethod
     def _parse_frontmatter( iContent: str ) -> tuple:
         """
-        解析 YAML Frontmatter。
+        解析 YAML Frontmatter（委派至 core.frontmatter 共用模組）。
 
         Args:
             iContent: Markdown 原始內容。
@@ -339,15 +353,8 @@ class VaultIndexer:
         Returns:
             (metadata_dict, body_content) 元組。
         """
-        _Match = re.match( r"^---\s*\n(.*?)\n---\s*\n?", iContent, re.DOTALL )
-        if _Match:
-            try:
-                _Meta = yaml.safe_load( _Match.group( 1 ) ) or {}
-                _Body = iContent[_Match.end():]
-                return _Meta, _Body
-            except yaml.YAMLError:
-                return {}, iContent
-        return {}, iContent
+        from core.frontmatter import parse
+        return parse( iContent )
 
     @staticmethod
     def _should_exclude( iSource: str ) -> bool:

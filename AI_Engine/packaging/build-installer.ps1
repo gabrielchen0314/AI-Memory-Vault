@@ -34,7 +34,10 @@ $ErrorActionPreference = "Stop"
 $ScriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
 $IssFile     = Join-Path $ScriptDir "installer.iss"
 $DistVaultAi = Join-Path $ScriptDir "..\dist\vault-ai"
-$OutputExe   = Join-Path $ScriptDir "..\dist\AI-Memory-Vault-Setup-v3.4.0.exe"
+
+# 從 installer.iss 動態讀取版本號
+$AppVersion  = (Select-String -Path $IssFile -Pattern '#define AppVersion\s+"([^"]+)"').Matches[0].Groups[1].Value
+$OutputExe   = Join-Path $ScriptDir "..\dist\AI-Memory-Vault-Setup-v$AppVersion.exe"
 
 # Inno Setup 預設安裝位置（依序搜尋）
 $IsccCandidates = @(
@@ -130,7 +133,7 @@ Write-Host "  檔案大小：$SizeMB MB"
 Write-Host "  建置耗時：$([math]::Round($Duration.TotalSeconds))s"
 Write-Host ""
 Write-Host "  使用方式：" -ForegroundColor White
-Write-Host "    雙擊 AI-Memory-Vault-Setup-v3.4.0.exe → 安裝精靈"
+Write-Host "    雙擊 AI-Memory-Vault-Setup-v$AppVersion.exe → 安裝精靈"
 Write-Host "    安裝後從桌面或開始功能表啟動"
 Write-Host ""
 Write-Host "[完成]" -ForegroundColor Green

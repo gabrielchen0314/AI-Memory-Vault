@@ -21,7 +21,7 @@ $ScriptPath = $MyInvocation.MyCommand.Path
 $isAdmin    = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 Set-Location $ScriptDir
 
-$ConfigPath = Join-Path $env:APPDATA "AI-Memory-Vault\config.json"
+$ConfigPath = if ($env:VAULT_DATA_DIR) { Join-Path $env:VAULT_DATA_DIR "config.json" } else { Join-Path $env:APPDATA "AI-Memory-Vault\config.json" }
 
 # ══════════════════════════════════════════════════════
 #  Sub-menu functions
@@ -38,20 +38,152 @@ function Show-EnvSettingsMenu {
         Write-Host "  2. 修改使用者資訊"
         Write-Host "  3. 管理組織"
         Write-Host "  4. 修改 LLM 設定"
-        Write-Host "  5. 完整重設（依序引導，Enter 保留原值）"
-        Write-Host "  6. 返回主選單"
+        Write-Host "  5. 修改設定檔/ChromaDB 目錄（config.json 與 ChromaDB 存放位置）"
+        Write-Host "  6. 完整重設（依序引導，Enter 保留原值）"
+        Write-Host "  7. 返回主選單"
         Write-Host ""
-        $sub = Read-Host "請選擇 [1-6]"
+        $sub = Read-Host "請選擇 [1-7]"
         switch ($sub) {
             "1" { Write-Host ""; & "$ScriptDir\vault-cli.exe" --setup-section vault; Write-Host ""; Write-Host "按任意鍵繼續..."; $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") }
             "2" { Write-Host ""; & "$ScriptDir\vault-cli.exe" --setup-section user;  Write-Host ""; Write-Host "按任意鍵繼續..."; $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") }
             "3" { Write-Host ""; & "$ScriptDir\vault-cli.exe" --setup-section org;   Write-Host ""; Write-Host "按任意鍵繼續..."; $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") }
             "4" { Write-Host ""; & "$ScriptDir\vault-cli.exe" --setup-section llm;   Write-Host ""; Write-Host "按任意鍵繼續..."; $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") }
-            "5" { Write-Host ""; & "$ScriptDir\vault-cli.exe" --reconfigure;         Write-Host ""; Write-Host "按任意鍵繼續..."; $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") }
-            "6" { break envMenu }
+            "5" { Show-DataDirMenu }
+            "6" { Write-Host ""; & "$ScriptDir\vault-cli.exe" --reconfigure;         Write-Host ""; Write-Host "按任意鍵繼續..."; $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") }
+            "7" { break envMenu }
             default { Write-Host "  [!] 無效選項" -ForegroundColor Red; Start-Sleep -Seconds 1 }
         }
     }
+}
+
+function Show-DataDirMenu {
+    Clear-Host
+    Write-Host "============================================" -ForegroundColor Cyan
+    Write-Host "  AI Memory Vault v3 - 設定檔/ChromaDB 目錄" -ForegroundColor Cyan
+    Write-Host "============================================" -ForegroundColor Cyan
+    Write-Host ""
+
+    $defaultDir = Join-Path $env:APPDATA "AI-Memory-Vault"
+    $currentEnv = [Environment]::GetEnvironmentVariable("VAULT_DATA_DIR", "User")
+    $effectiveDir = if ($currentEnv) { $currentEnv } else { $defaultDir }
+
+    Write-Host "  預設位置：$defaultDir" -ForegroundColor DarkGray
+    if ($currentEnv) {
+        Write-Host "  自訂位置：$currentEnv" -ForegroundColor Green
+        Write-Host "  （已設定 VAULT_DATA_DIR 環境變數）" -ForegroundColor DarkGray
+    } else {
+        Write-Host "  目前使用：預設位置" -ForegroundColor DarkGray
+    }
+
+    # 顯示目前資料目錄內容
+    Write-Host ""
+    if (Test-Path $effectiveDir) {
+        $items = Get-ChildItem $effectiveDir -ErrorAction SilentlyContinue
+        Write-Host "  目前資料目錄內容：" -ForegroundColor DarkGray
+        foreach ($item in $items) {
+            $sizeStr = if ($item.PSIsContainer) { "[DIR]" } else { "{0:N0} KB" -f ($item.Length / 1KB) }
+            Write-Host "    $($item.Name)  ($sizeStr)" -ForegroundColor DarkGray
+        }
+    } else {
+        Write-Host "  [!] 資料目錄不存在" -ForegroundColor Yellow
+    }
+
+    Write-Host ""
+    Write-Host "  1. 變更資料目錄"
+    if ($currentEnv) {
+        Write-Host "  2. 恢復預設位置（$defaultDir）"
+    }
+    Write-Host "  0. 返回"
+    Write-Host ""
+    $choice = Read-Host "請選擇"
+
+    switch ($choice) {
+        "1" {
+            Write-Host ""
+            Write-Host "  請輸入新的設定檔/ChromaDB 目錄絕對路徑" -ForegroundColor Cyan
+            Write-Host "  （config.json、ChromaDB、備份等會存放在此目錄）" -ForegroundColor DarkGray
+            Write-Host ""
+            $newDir = Read-Host "  新路徑"
+            $newDir = $newDir.Trim().Trim('"')
+            if (-not $newDir) {
+                Write-Host "  [!] 已取消" -ForegroundColor Yellow
+                Write-Host ""; Write-Host "按任意鍵返回..."; $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                return
+            }
+            if (-not [System.IO.Path]::IsPathRooted($newDir)) {
+                Write-Host "  [!] 請輸入絕對路徑（例如 D:\MyVaultData）" -ForegroundColor Red
+                Write-Host ""; Write-Host "按任意鍵返回..."; $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                return
+            }
+            if ($newDir -eq $effectiveDir) {
+                Write-Host "  [!] 新路徑與目前路徑相同，無需變更" -ForegroundColor Yellow
+                Write-Host ""; Write-Host "按任意鍵返回..."; $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                return
+            }
+
+            # 顯示執行計畫，讓使用者一次確認
+            $hasData = (Test-Path $effectiveDir) -and (Get-ChildItem $effectiveDir -ErrorAction SilentlyContinue).Count -gt 0
+            Write-Host ""
+            Write-Host "  ── 執行計畫 ────────────────────────────────" -ForegroundColor Cyan
+            if ($hasData) {
+                Write-Host "  1. 搬移現有資料" -ForegroundColor DarkGray
+                Write-Host "       從：$effectiveDir" -ForegroundColor DarkGray
+                Write-Host "       至：$newDir" -ForegroundColor DarkGray
+            } else {
+                Write-Host "  1. 建立新目錄：$newDir" -ForegroundColor DarkGray
+            }
+            Write-Host "  2. 設定 VAULT_DATA_DIR = $newDir" -ForegroundColor DarkGray
+            Write-Host ""
+            $confirm = Read-Host "  確認執行？[Y/N]"
+            if ($confirm -notmatch "^[Yy]") {
+                Write-Host "  [!] 已取消" -ForegroundColor Yellow
+                Write-Host ""; Write-Host "按任意鍵返回..."; $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                return
+            }
+
+            # 建立目標目錄
+            if (-not (Test-Path $newDir)) {
+                New-Item -ItemType Directory -Path $newDir -Force | Out-Null
+                Write-Host "  [i] 已建立目錄：$newDir" -ForegroundColor DarkGray
+            }
+
+            # 搬移現有資料（複製後刪除原始）
+            if ($hasData) {
+                Write-Host "  [i] 搬移中..." -ForegroundColor Yellow
+                try {
+                    Copy-Item "$effectiveDir\*" $newDir -Recurse -Force -ErrorAction Stop
+                    Remove-Item "$effectiveDir\*" -Recurse -Force -ErrorAction SilentlyContinue
+                    Write-Host "  [OK] 資料搬移完成" -ForegroundColor Green
+                } catch {
+                    Write-Host "  [!] 搬移失敗：$_" -ForegroundColor Red
+                    Write-Host "  原始資料保留在：$effectiveDir" -ForegroundColor Yellow
+                    Write-Host ""; Write-Host "按任意鍵返回..."; $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                    return
+                }
+            }
+
+            # 設定環境變數
+            [Environment]::SetEnvironmentVariable("VAULT_DATA_DIR", $newDir, "User")
+            $env:VAULT_DATA_DIR = $newDir
+            Write-Host ""
+            Write-Host "  [OK] 已設定 VAULT_DATA_DIR = $newDir" -ForegroundColor Green
+            Write-Host "  ⚠ 需要重新啟動選單或 exe 才會生效" -ForegroundColor Yellow
+        }
+        "2" {
+            if ($currentEnv) {
+                [Environment]::SetEnvironmentVariable("VAULT_DATA_DIR", $null, "User")
+                $env:VAULT_DATA_DIR = $null
+                Write-Host ""
+                Write-Host "  [OK] 已移除 VAULT_DATA_DIR，恢復使用預設位置" -ForegroundColor Green
+                Write-Host "  預設：$defaultDir" -ForegroundColor DarkGray
+                Write-Host "  ⚠ 需要重新啟動選單或 exe 才會生效" -ForegroundColor Yellow
+            }
+        }
+        default { return }
+    }
+    Write-Host ""
+    Write-Host "按任意鍵返回..."
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
 }
 
 function Show-SchedulerMenu {
@@ -281,7 +413,8 @@ function Show-SchedulerMenu {
                 $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
             }
             "5" {
-                $LogPath = Join-Path $env:APPDATA "AI-Memory-Vault\scheduler.log"
+                $DataDir = if ($env:VAULT_DATA_DIR) { $env:VAULT_DATA_DIR } else { Join-Path $env:APPDATA "AI-Memory-Vault" }
+                $LogPath = Join-Path $DataDir "scheduler.log"
                 Write-Host ""
                 if (Test-Path $LogPath) {
                     Write-Host "  ── 排程 Log（最後 40 行）──────────────────" -ForegroundColor Cyan
@@ -335,7 +468,8 @@ function Show-SchedulerMenu {
                         Write-Host ""
                     }
                 }
-                $LogPath = Join-Path $env:APPDATA "AI-Memory-Vault\scheduler.log"
+                $DataDir = if ($env:VAULT_DATA_DIR) { $env:VAULT_DATA_DIR } else { Join-Path $env:APPDATA "AI-Memory-Vault" }
+                $LogPath = Join-Path $DataDir "scheduler.log"
                 if (Test-Path $LogPath) {
                     Write-Host "  ── Log 最後 5 行 ──────────────────────────────────" -ForegroundColor DarkGray
                     Get-Content $LogPath -Tail 5 | ForEach-Object { Write-Host ("    " + $_) -ForegroundColor DarkGray }

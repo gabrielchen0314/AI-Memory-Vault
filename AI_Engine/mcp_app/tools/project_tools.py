@@ -21,41 +21,24 @@ def register( mcp ):
         列出 Vault 中所有組織及其下的專案清單。
         回傳格式化的 Markdown 表格，每個組織一個區段。
         """
-        import os
-        from config import ConfigManager
-        _Config = ConfigManager.load()
-        _P = _Config.paths
-        _WorkspacesAbs = os.path.join( _Config.vault_path, _P.workspaces )
-
-        if not os.path.isdir( _WorkspacesAbs ):
-            return "Vault workspaces 目錄不存在。"
+        from services.vault import VaultService
+        _Result, _Err = VaultService.list_projects()
+        if _Err:
+            return f"❌ {_Err}"
+        if not _Result:
+            return "未找到任何組織或專案。"
 
         _Lines = []
-        for _OrgEntry in sorted( os.listdir( _WorkspacesAbs ) ):
-            if _OrgEntry.startswith( "_" ):
-                continue
-            _OrgDir = os.path.join( _WorkspacesAbs, _OrgEntry )
-            if not os.path.isdir( _OrgDir ):
-                continue
-
-            _ProjectsDir = os.path.join( _OrgDir, _P.org_projects )
-            _Projects = []
-            if os.path.isdir( _ProjectsDir ):
-                for _ProjEntry in sorted( os.listdir( _ProjectsDir ) ):
-                    if os.path.isdir( os.path.join( _ProjectsDir, _ProjEntry ) ):
-                        _Projects.append( _ProjEntry )
-
-            _Lines.append( f"\n## {_OrgEntry}\n" )
-            if _Projects:
-                for _Proj in _Projects:
-                    _StatusPath = _P.project_status_file( _OrgEntry, _Proj )
-                    _StatusAbs = os.path.join( _Config.vault_path, _StatusPath )
-                    _HasStatus = "✅" if os.path.isfile( _StatusAbs ) else "⬜"
-                    _Lines.append( f"- {_HasStatus} `{_Proj}`" )
+        for _Org in _Result:
+            _Lines.append( f"\n## {_Org['organization']}\n" )
+            if _Org["projects"]:
+                for _Proj in _Org["projects"]:
+                    _Icon = "✅" if _Proj["has_status"] else "⬜"
+                    _Lines.append( f"- {_Icon} `{_Proj['name']}`" )
             else:
                 _Lines.append( "（尚無專案）" )
 
-        return "\n".join( _Lines ).strip() if _Lines else "未找到任何組織或專案。"
+        return "\n".join( _Lines ).strip()
 
     @mcp.tool()
     @suppress_stdout

@@ -38,7 +38,7 @@ def initialize( iChromaDir: str, iRecordDbUrl: str, iCollectionName: str = "vaul
 @lru_cache( maxsize=1 )
 def get_vectorstore():
     """取得 ChromaDB 向量資料庫實例（單例）。"""
-    # 延遲載入：避免 frozen exe 在 import 階段就觸發 chromadb/torch DLL 載入
+    # 延遲載入：避免 frozen exe 在 import 階段就觸發 chromadb DLL 載入
     from langchain_chroma import Chroma
     from .embeddings import get_embeddings
     if not _g_ChromaDir:

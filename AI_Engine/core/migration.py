@@ -27,13 +27,14 @@ Meta 檔案存放位置：DATA_DIR/vault_meta.json
 @since AI-Memory-Vault 3.4
 @date 2026.04.06
 """
+import hashlib
 import json
 import logging
 import shutil
 from pathlib import Path
 from typing import List, Tuple
 
-from config import AppConfig, DATA_DIR
+from config import AppConfig, CATEGORY_MAP, DATA_DIR, FRONTMATTER_FIELDS
 
 _logger = logging.getLogger( __name__ )
 
@@ -45,12 +46,16 @@ _META_FILE: Path = DATA_DIR / "vault_meta.json"
 
 def _build_signature( iConfig: AppConfig ) -> dict:
     """根據目前設定建立比對用的 signature dict。"""
+    _MetaHash = hashlib.md5(
+        json.dumps( sorted( FRONTMATTER_FIELDS ) + sorted( CATEGORY_MAP.keys() ), ensure_ascii=False ).encode()
+    ).hexdigest()
     return {
         "schema_version":  _SCHEMA_VERSION,
         "embedding_model": iConfig.embedding.model,
         "chunk_size":      iConfig.embedding.chunk_size,
         "chunk_overlap":   iConfig.embedding.chunk_overlap,
         "collection_name": iConfig.database.collection_name,
+        "metadata_hash":   _MetaHash,
     }
 
 

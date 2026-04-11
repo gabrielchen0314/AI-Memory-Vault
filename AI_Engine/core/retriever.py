@@ -13,22 +13,32 @@ Vault 檢索器
 @date 2026.04.01
 """
 import math
+import os
 import sys
 from datetime import datetime, timezone
 from typing import Optional
 
 from langchain_core.documents import Document
-from langchain_community.retrievers import BM25Retriever
-from langchain_classic.retrievers.ensemble import EnsembleRetriever
 
 from config import CATEGORY_UNKNOWN, AppConfig
 from .vectorstore import get_vectorstore
+
+# ── 延遲匯入（避免 frozen exe 在 import 階段觸發 C extension crash）──
+def _get_bm25_retriever():
+    from langchain_community.retrievers import BM25Retriever
+    return BM25Retriever
+
+def _get_ensemble_retriever():
+    from langchain_classic.retrievers.ensemble import EnsembleRetriever
+    return EnsembleRetriever
 
 
 class VaultRetriever:
     """Vault 檢索器：支援 Pure Vector 與 Hybrid（BM25 + Vector）兩種模式。"""
 
     #region 成員變數
+    ## <summary>Vault 根目錄（用於轉換相對路徑）</summary>
+    m_VaultRoot: str
     ## <summary>搜尋設定快照</summary>
     m_TopK: int
     m_UseHybrid: bool
@@ -38,6 +48,9 @@ class VaultRetriever:
     m_SemanticBM25Weight: float
     m_RecencyEnabled: bool
     m_RecencyDecayDays: int
+    ## <summary>BM25 全量語料快取（避免每次搜尋重建）</summary>
+    _bm25_all_docs: Optional[list] = None
+    _bm25_cache_valid: bool = False
     #endregion
 
     def __init__( self, iConfig: AppConfig ):
@@ -47,6 +60,7 @@ class VaultRetriever:
         Args:
             iConfig: 應用程式設定。
         """
+        self.m_VaultRoot         = os.path.realpath( iConfig.vault_path )
         self.m_TopK              = iConfig.search.top_k
         self.m_UseHybrid         = iConfig.search.use_hybrid
         self.m_BM25Weight        = iConfig.search.bm25_weight
@@ -55,8 +69,18 @@ class VaultRetriever:
         self.m_SemanticBM25Weight = iConfig.search.semantic_bm25_weight
         self.m_RecencyEnabled    = iConfig.search.recency_bias_enabled
         self.m_RecencyDecayDays  = iConfig.search.recency_decay_days
+        self._bm25_all_docs     = None
+        self._bm25_cache_valid  = False
 
     #region 公開方法
+    def invalidate_bm25_cache( self ) -> None:
+        """
+        使 BM25 全量語料快取失效。
+        在 sync / write / delete 後呼叫，下次搜尋時自動重建。
+        """
+        self._bm25_all_docs = None
+        self._bm25_cache_valid = False
+
     def search(
         self,
         iQuery: str,
@@ -96,9 +120,11 @@ class VaultRetriever:
 
         _Results = []
         for _Doc in _Docs:
+            _AbsSource = _Doc.metadata.get( "source", "" )
+            _RelSource = self._to_relative( _AbsSource )
             _Results.append( {
                 "content": _Doc.page_content,
-                "source": _Doc.metadata.get( "source", "" ),
+                "source": _RelSource,
                 "category": _Doc.metadata.get( "category", CATEGORY_UNKNOWN ),
                 "doc_type": _Doc.metadata.get( "type", "" ),
                 "domain": _Doc.metadata.get( "domain", "" ),
@@ -177,23 +203,28 @@ class VaultRetriever:
         _Filter = self._build_filter( iCategory, iDocType )
         _Vectorstore = get_vectorstore()
 
-        # ── 取出語料（依 filter 縮小範圍 or 全量）──────────
+        # ── 取出語料（依 filter 縮小範圍 or 全量快取）──────────
         if _Filter:
             print( f"[過濾條件] {_Filter}", file=sys.stderr )
             _AllDocs = _Vectorstore.similarity_search( iQuery, k=500, filter=_Filter )
         else:
-            _Raw = _Vectorstore._collection.get( include=["documents", "metadatas"] )
-            _AllDocs = [
-                Document( page_content=_Text, metadata=_Meta )
-                for _Text, _Meta in zip( _Raw["documents"], _Raw["metadatas"] )
-                if _Text
-            ]
+            if self._bm25_cache_valid and self._bm25_all_docs is not None:
+                _AllDocs = self._bm25_all_docs
+            else:
+                _Raw = _Vectorstore.get( include=["documents", "metadatas"] )
+                _AllDocs = [
+                    Document( page_content=_Text, metadata=_Meta )
+                    for _Text, _Meta in zip( _Raw["documents"], _Raw["metadatas"] )
+                    if _Text
+                ]
+                self._bm25_all_docs = _AllDocs
+                self._bm25_cache_valid = True
 
         if not _AllDocs:
             return []
 
         # ── BM25 Retriever ─────────────────────────────────
-        _Bm25 = BM25Retriever.from_documents( _AllDocs )
+        _Bm25 = _get_bm25_retriever().from_documents( _AllDocs )
         _Bm25.k = iTopK
 
         # ── Vector Retriever ───────────────────────────────
@@ -203,7 +234,7 @@ class VaultRetriever:
         _VectorRetriever = _Vectorstore.as_retriever( search_kwargs=_VectorKwargs )
 
         # ── Ensemble（RRF 合併）────────────────────────────
-        _Ensemble = EnsembleRetriever(
+        _Ensemble = _get_ensemble_retriever()(
             retrievers=[_Bm25, _VectorRetriever],
             weights=[_Bm25W, _VecW],
         )
@@ -260,6 +291,22 @@ class VaultRetriever:
 
         _Scored = sorted( iDocs, key=_decay_score, reverse=True )
         return _Scored
+
+    def _to_relative( self, iAbsPath: str ) -> str:
+        """
+        將絕對路徑轉為 Vault 相對路徑（減少 Token 消耗）。
+
+        Args:
+            iAbsPath: 檔案絕對路徑。
+
+        Returns:
+            相對於 Vault 根目錄的路徑（正斜線分隔），轉換失敗則回傳原路徑。
+        """
+        try:
+            _Rel = os.path.relpath( iAbsPath, self.m_VaultRoot )
+            return _Rel.replace( os.sep, "/" )
+        except ValueError:
+            return iAbsPath
 
     @staticmethod
     def _build_filter( iCategory: str, iDocType: str ) -> dict:

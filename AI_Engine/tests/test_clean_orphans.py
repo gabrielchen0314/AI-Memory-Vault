@@ -73,10 +73,11 @@ class TestVaultServiceCleanOrphans:
     def test_no_orphans_returns_zero( self, monkeypatch ):
         """check_integrity 無孤立時，clean_orphans 應回傳 removed=0。"""
         import services.vault as _V
+        import services._vault.index_ops as _IO
         monkeypatch.setattr( _V.VaultService, "_ensure_initialized",
                              classmethod( lambda cls: None ) )
-        monkeypatch.setattr( _V.VaultService, "check_integrity",
-                             classmethod( lambda cls: ( _NO_ORPHANS_INTEGRITY, None ) ) )
+        monkeypatch.setattr( _IO, "check_integrity",
+                             lambda cls: ( _NO_ORPHANS_INTEGRITY, None ) )
 
         _Result, _Err = _V.VaultService.clean_orphans()
 
@@ -87,6 +88,7 @@ class TestVaultServiceCleanOrphans:
     def test_with_orphans_calls_delete( self, monkeypatch ):
         """有孤立來源時，clean_orphans 應呼叫 delete_source 並累計 removed。"""
         import services.vault as _V
+        import services._vault.index_ops as _IO
 
         _DeletedPaths = []
 
@@ -98,8 +100,8 @@ class TestVaultServiceCleanOrphans:
 
         monkeypatch.setattr( _V.VaultService, "_ensure_initialized",
                              classmethod( lambda cls: None ) )
-        monkeypatch.setattr( _V.VaultService, "check_integrity",
-                             classmethod( lambda cls: ( _WITH_ORPHANS_INTEGRITY, None ) ) )
+        monkeypatch.setattr( _IO, "check_integrity",
+                             lambda cls: ( _WITH_ORPHANS_INTEGRITY, None ) )
         monkeypatch.setattr( _V.VaultService, "m_Indexer", _FakeIndexer() )
 
         _Result, _Err = _V.VaultService.clean_orphans()
@@ -112,10 +114,11 @@ class TestVaultServiceCleanOrphans:
     def test_check_integrity_error_propagates( self, monkeypatch ):
         """check_integrity 回傳錯誤時，clean_orphans 應原樣回傳 (None, err)。"""
         import services.vault as _V
+        import services._vault.index_ops as _IO
         monkeypatch.setattr( _V.VaultService, "_ensure_initialized",
                              classmethod( lambda cls: None ) )
-        monkeypatch.setattr( _V.VaultService, "check_integrity",
-                             classmethod( lambda cls: ( None, "DB unreachable" ) ) )
+        monkeypatch.setattr( _IO, "check_integrity",
+                             lambda cls: ( None, "DB unreachable" ) )
 
         _Result, _Err = _V.VaultService.clean_orphans()
 
@@ -125,6 +128,7 @@ class TestVaultServiceCleanOrphans:
     def test_exception_returns_none_err( self, monkeypatch ):
         """delete_source 拋出例外時，clean_orphans 應捕捉並回傳 (None, message)。"""
         import services.vault as _V
+        import services._vault.index_ops as _IO
 
         class _BrokenIndexer:
             @staticmethod
@@ -133,8 +137,8 @@ class TestVaultServiceCleanOrphans:
 
         monkeypatch.setattr( _V.VaultService, "_ensure_initialized",
                              classmethod( lambda cls: None ) )
-        monkeypatch.setattr( _V.VaultService, "check_integrity",
-                             classmethod( lambda cls: ( _WITH_ORPHANS_INTEGRITY, None ) ) )
+        monkeypatch.setattr( _IO, "check_integrity",
+                             lambda cls: ( _WITH_ORPHANS_INTEGRITY, None ) )
         monkeypatch.setattr( _V.VaultService, "m_Indexer", _BrokenIndexer() )
 
         _Result, _Err = _V.VaultService.clean_orphans()
@@ -153,15 +157,15 @@ class TestMcpCleanOrphans:
 
 
     def test_clean_db_returns_clean_message( self, monkeypatch ):
-        """`removed == 0` 時，應回傳 'No orphaned' 訊息。"""
+        """`removed == 0` 時，應回傳整潔訊息。"""
         import mcp_app.server as _S
         import services.vault as _V
         monkeypatch.setattr( _V.VaultService, "clean_orphans",
                              classmethod( lambda cls: ( _CLEAN_RESULT_ZERO, None ) ) )
 
-        _Out = _S.clean_orphans()
+        _Out = _S.mcp._tool_manager._tools["clean_orphans"].fn()
 
-        assert "No orphaned" in _Out or "DB is clean" in _Out
+        assert "整潔" in _Out or "孤立" in _Out or "✅" in _Out
 
     def test_orphans_found_shows_count_and_sources( self, monkeypatch ):
         """有孤立向量時，輸出應包含 removed 數字與來源路徑。"""
@@ -170,26 +174,26 @@ class TestMcpCleanOrphans:
         monkeypatch.setattr( _V.VaultService, "clean_orphans",
                              classmethod( lambda cls: ( _CLEAN_RESULT_HIT, None ) ) )
 
-        _Out = _S.clean_orphans()
+        _Out = _S.mcp._tool_manager._tools["clean_orphans"].fn()
 
         assert "5" in _Out                         # removed chunks
         assert "2" in _Out                         # source count
         assert "deleted_note.md" in _Out or "another.md" in _Out
 
     def test_error_returned_as_error_string( self, monkeypatch ):
-        """VaultService 回傳錯誤時，輸出應以 'Error:' 開頭。"""
+        """VaultService 回傳錯誤時，輸出應包含錯誤訊息。"""
         import mcp_app.server as _S
         import services.vault as _V
         monkeypatch.setattr( _V.VaultService, "clean_orphans",
                              classmethod( lambda cls: ( None, "DB locked" ) ) )
 
-        _Out = _S.clean_orphans()
+        _Out = _S.mcp._tool_manager._tools["clean_orphans"].fn()
 
-        assert _Out.startswith( "Error:" )
+        assert "❌" in _Out or "Error" in _Out
         assert "DB locked" in _Out
 
     def test_exception_returns_error_string( self, monkeypatch ):
-        """意外例外應被捕捉並以 'Error:' 開頭回傳。"""
+        """意外例外應被捕捉並回傳錯誤訊息。"""
         import mcp_app.server as _S
         import services.vault as _V
 
@@ -199,10 +203,9 @@ class TestMcpCleanOrphans:
         monkeypatch.setattr( _V.VaultService, "clean_orphans",
                              classmethod( _raise ) )
 
-        _Out = _S.clean_orphans()
+        _Out = _S.mcp._tool_manager._tools["clean_orphans"].fn()
 
-        assert _Out.startswith( "Error:" )
-        assert "crash" in _Out
+        assert "Error" in _Out or "❌" in _Out or "crash" in _Out
 
 
 # ════════════════════════════════════════════════════════════

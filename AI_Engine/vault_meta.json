@@ -1,7 +1,0 @@
-{
-  "schema_version": 1,
-  "embedding_model": "all-MiniLM-L6-v2",
-  "chunk_size": 500,
-  "chunk_overlap": 50,
-  "collection_name": "test_vault"
-}

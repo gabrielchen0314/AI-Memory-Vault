@@ -1,7 +1,7 @@
 ---
 type: system
 created: 2026.04.04
-last_updated: 2026.04.09
+last_updated: 2026.04.11
 inject: true
 ---
 
@@ -25,6 +25,9 @@ inject: true
 - **詳細路徑**：`workspaces/{org}/projects/{project}/conversations/YYYY-MM-DD_{session}-detail.md`（自動生成）
 - `content` 參數放簡短摘要；`detail` 參數放結構化詳細紀錄
 - AI 從 conversation summary 自動萃取 detail 內容，不需用戶手動輸入
+- **`detail.interaction_issues`**：回顧對話中是否有溝通誤解、使用者糾正、意圖誤判等互動問題
+  - AI 應主動回顧整段對話，識別 misunderstanding / correction / ambiguity / over-action / missed-intent
+  - 記錄雙方視角：使用者意圖 vs AI 行為 vs 為什麼誤判 vs 如何預防
 - 一次對話一份，多次對話分開記錄
 - **此格式為全域共用**，適用所有組織與所有專案
 

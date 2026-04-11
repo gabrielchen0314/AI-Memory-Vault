@@ -23,9 +23,12 @@ from __future__ import annotations
 
 import os
 import threading
+from contextlib import contextmanager
 from typing import Optional
 
-from config import AppConfig
+from filelock import FileLock
+
+from config import AppConfig, DATA_DIR
 from core.logger import get_logger
 from core.errors import (
     VaultError, PathTraversalError, FileNotFoundError_,
@@ -34,6 +37,10 @@ from core.errors import (
 )
 
 _logger = get_logger( __name__ )
+
+## <summary>跨程序檔案鎖（保護多 Editor 並發寫入）</summary>
+_VAULT_LOCK_PATH = str( DATA_DIR / "vault.lock" )
+_VAULT_FILE_LOCK = FileLock( _VAULT_LOCK_PATH, timeout=30 )
 
 
 class VaultService:
@@ -58,6 +65,8 @@ class VaultService:
     m_Retriever = None
     ## <summary>是否已初始化</summary>
     m_IsInitialized: bool = False
+    ## <summary>寫入後 hook 回呼列表 — Callable[[str], None]，參數為 Vault 相對路徑</summary>
+    _post_write_hooks: list = []
     #endregion
 
     #region 初始化
@@ -168,6 +177,51 @@ class VaultService:
         os.makedirs( _OrgRulesDir, exist_ok=True )
 
         return True
+
+    @classmethod
+    def _invalidate_bm25_cache( cls ) -> None:
+        """使 Retriever 的 BM25 全量語料快取失效，下次搜尋時自動重建。"""
+        if cls.m_Retriever is not None and hasattr( cls.m_Retriever, "invalidate_bm25_cache" ):
+            cls.m_Retriever.invalidate_bm25_cache()
+
+    @classmethod
+    def register_post_write_hook( cls, iCallback ) -> None:
+        """
+        註冊寫入後 hook。每次成功 write / batch_write / edit 後依序呼叫。
+        callback 簽名：(rel_path: str) -> None。
+
+        Args:
+            iCallback: 回呼函式，接收 Vault 相對路徑。
+        """
+        if iCallback not in cls._post_write_hooks:
+            cls._post_write_hooks.append( iCallback )
+
+    @classmethod
+    def unregister_post_write_hook( cls, iCallback ) -> None:
+        """移除已註冊的寫入後 hook。"""
+        try:
+            cls._post_write_hooks.remove( iCallback )
+        except ValueError:
+            pass
+
+    @classmethod
+    def _fire_post_write_hooks( cls, iRelPath: str ) -> None:
+        """觸發所有已註冊的 post-write hooks（靜默失敗）。"""
+        for _Hook in cls._post_write_hooks:
+            try:
+                _Hook( iRelPath )
+            except Exception as _Err:
+                _logger.warning( f"Post-write hook error ({_Hook.__name__}): {_Err}" )
+
+    @staticmethod
+    @contextmanager
+    def _write_lock():
+        """取得跨程序寫入鎖（多 Editor 並發保護）。"""
+        try:
+            _VAULT_FILE_LOCK.acquire()
+            yield
+        finally:
+            _VAULT_FILE_LOCK.release()
     #endregion
 
     #region 公開方法（Facade — 委派至 services/_vault/ 子模組）
@@ -184,37 +238,66 @@ class VaultService:
     def write_note( cls, iFilePath: str, iContent: str, iMode: str = "overwrite" ) -> tuple:
         """寫入或更新 Vault 中的筆記檔案，並自動索引至向量庫。"""
         from services._vault.note_ops import write_note
-        return write_note( cls, iFilePath, iContent, iMode )
+        with cls._write_lock():
+            _Result = write_note( cls, iFilePath, iContent, iMode )
+        cls._invalidate_bm25_cache()
+        if _Result[1] is None:  # 寫入成功
+            cls._fire_post_write_hooks( iFilePath )
+        return _Result
 
     @classmethod
     def batch_write_notes( cls, iNotes: list ) -> tuple:
         """批次寫入多個筆記，統一執行一次 ChromaDB 索引。"""
         from services._vault.note_ops import batch_write_notes
-        return batch_write_notes( cls, iNotes )
+        with cls._write_lock():
+            _Result = batch_write_notes( cls, iNotes )
+        cls._invalidate_bm25_cache()
+        _ItemResults = _Result[0] if _Result[0] else []
+        for _Item in _ItemResults:
+            if _Item.get( "ok" ):
+                cls._fire_post_write_hooks( _Item["file_path"] )
+        return _Result
 
     @classmethod
     def edit_note( cls, iFilePath: str, iOldText: str, iNewText: str ) -> tuple:
         """在指定 .md 檔案中執行精確的文字替換（不全文覆寫）。"""
         from services._vault.note_ops import edit_note
-        return edit_note( cls, iFilePath, iOldText, iNewText )
+        with cls._write_lock():
+            _Result = edit_note( cls, iFilePath, iOldText, iNewText )
+        cls._invalidate_bm25_cache()
+        if _Result[1] is None:
+            cls._fire_post_write_hooks( iFilePath )
+        return _Result
 
     @classmethod
     def delete_note( cls, iFilePath: str ) -> tuple:
         """刪除 Vault 中的指定 .md 檔案，並移除 ChromaDB 中對應的向量記錄。"""
         from services._vault.note_ops import delete_note
-        return delete_note( cls, iFilePath )
+        with cls._write_lock():
+            _Result = delete_note( cls, iFilePath )
+        cls._invalidate_bm25_cache()
+        return _Result
 
     @classmethod
     def rename_note( cls, iOldPath: str, iNewPath: str ) -> tuple:
         """將 Vault 中的 .md 檔案移動到新路徑，同步更新 ChromaDB 索引。"""
         from services._vault.note_ops import rename_note
-        return rename_note( cls, iOldPath, iNewPath )
+        with cls._write_lock():
+            _Result = rename_note( cls, iOldPath, iNewPath )
+        cls._invalidate_bm25_cache()
+        return _Result
 
     @classmethod
     def list_notes( cls, iPath: str = "", iRecursive: bool = False ) -> tuple:
         """列出指定目錄下的所有 .md 檔案。"""
         from services._vault.note_ops import list_notes
         return list_notes( cls, iPath, iRecursive )
+
+    @classmethod
+    def list_projects( cls ) -> tuple:
+        """列出所有組織及其下的專案清單。"""
+        from services._vault.note_ops import list_projects
+        return list_projects( cls )
 
     # ── Todo ───────────────────────────────────────────────
 
@@ -275,7 +358,10 @@ class VaultService:
     def sync( cls ) -> dict:
         """執行全量增量同步。"""
         from services._vault.index_ops import sync
-        return sync( cls )
+        with cls._write_lock():
+            _Result = sync( cls )
+        cls._invalidate_bm25_cache()
+        return _Result
 
     @classmethod
     def check_integrity( cls ) -> tuple:

@@ -19,6 +19,10 @@ import subprocess
 import os
 from typing import Optional
 
+from core.logger import get_logger
+
+_logger = get_logger( __name__ )
+
 
 class GitService:
     """Vault Git 版本控制服務（類方法介面，無狀態）。"""
@@ -46,6 +50,7 @@ class GitService:
 
         _Ret = cls._run( ["git", "init"], iVaultPath )
         if _Ret.returncode != 0:
+            _logger.warning( "git init 失敗：%s", _Ret.stderr.strip() )
             return False
 
         # 建立初始 .gitignore 排除 ChromaDB / venv 等
@@ -99,6 +104,7 @@ class GitService:
         # git add <file>
         _AddRet = cls._run( ["git", "add", "--", iRelPath], iVaultPath, env=_Env )
         if _AddRet.returncode != 0:
+            _logger.warning( "git add 失敗（%s）：%s", iRelPath, _AddRet.stderr.strip() )
             return False, f"git add failed: {_AddRet.stderr.strip()}"
 
         # git commit（若無差異 → returncode=1 but stderr 包含 "nothing to commit"）
@@ -119,6 +125,7 @@ class GitService:
         if "nothing to commit" in _Out or "nothing added to commit" in _Out:
             return False, None
 
+        _logger.warning( "git commit 失敗（%s）：%s", iRelPath, _CommitRet.stderr.strip() )
         return False, f"git commit failed: {_CommitRet.stderr.strip()}"
 
     @classmethod
@@ -183,6 +190,7 @@ class GitService:
                 env=env,
             )
         except Exception as _E:
+            _logger.warning( "git 子程序執行失敗：%s → %s", iCmd, _E )
             # 模擬失敗的 CompletedProcess
             class _FakeResult:
                 returncode = 1
