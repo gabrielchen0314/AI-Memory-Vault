@@ -103,11 +103,41 @@ TOOL_REGISTRY: list = [
         invoke=None,   # 保留 _cmd_list（格式化表格 + -r 旗標）
     ),
     ToolEntry(
+        name="edit", alias="ed", group="files",
+        icon="✍️ ", menu_label="局部編輯筆記    (edit)",
+        help_line="edit <path> <old> <new>  精確文字替換（不全文覆寫）",
+        params=[
+            ToolParam( "path",     "筆記路徑：",     "vault_path" ),
+            ToolParam( "old_text", "要替換的文字：", "multiline" ),
+            ToolParam( "new_text", "替換後文字：",   "multiline" ),
+        ],
+        invoke=None,   # 保留 _cmd_edit（多行互動輸入）
+    ),
+    ToolEntry(
+        name="grep", alias="gr", group="files",
+        icon="🔎", menu_label="精確搜尋        (grep)",
+        help_line="grep <pattern> [<path>] [-r]  精確文字 / 正規表達式搜尋",
+        params=[
+            ToolParam( "pattern", "搜尋文字（或 regex）：", "text" ),
+            ToolParam( "path",    "限定目錄（留空=全 Vault）：", "top_folder", required=False ),
+        ],
+        invoke=None,   # 保留 _cmd_grep（支援 -r regex 旗標）
+    ),
+    ToolEntry(
         name="sync", alias="sy", group="files",
         icon="🔄", menu_label="同步 ChromaDB   (sync)",
         help_line="sync                  增量同步 .md → ChromaDB",
         params=[],
         invoke=None,   # 保留 _cmd_sync（格式化輸出）
+    ),
+    ToolEntry(
+        name="batchwrite", alias="bw", group="files",
+        icon="📝", menu_label="批次寫入筆記    (batchwrite)",
+        help_line="batchwrite <json>     批次寫入筆記（JSON 檔案路徑）",
+        params=[
+            ToolParam( "json_path", "JSON 檔案路徑：", "text" ),
+        ],
+        invoke=None,   # 保留 _cmd_batchwrite（格式化輸出）
     ),
 
     # ── projects ───────────────────────────────────────────────
@@ -133,6 +163,31 @@ TOOL_REGISTRY: list = [
             ToolParam( "state",   "狀態：",       "text", required=False, default="done" ),
         ],
         invoke=None,   # 保留 _cmd_todo（互動式選取）
+    ),
+    ToolEntry(
+        name="addtodo", alias="at", group="projects",
+        icon="➕", menu_label="新增 Todo        (addtodo)",
+        help_line="addtodo <path> <text> [<section>]  新增 todo 項目",
+        params=[
+            ToolParam( "org",     "選擇組織：",                  "org" ),
+            ToolParam( "project", "選擇專案：",                  "project" ),
+            ToolParam( "file",    "選擇檔案：",                  "project_file" ),
+            ToolParam( "text",    "Todo 文字：",                  "text" ),
+            ToolParam( "section", "目標段落（留空=待處理）：",   "text", required=False ),
+        ],
+        invoke=None,   # 保留 _cmd_addtodo（互動式）
+    ),
+    ToolEntry(
+        name="rmtodo", alias="rt", group="projects",
+        icon="➖", menu_label="移除 Todo        (rmtodo)",
+        help_line="rmtodo <path> <text>  移除 todo 項目（整行刪除）",
+        params=[
+            ToolParam( "org",     "選擇組織：",  "org" ),
+            ToolParam( "project", "選擇專案：",  "project" ),
+            ToolParam( "file",    "選擇檔案：",  "project_file" ),
+            ToolParam( "text",    "Todo 文字：",  "text" ),
+        ],
+        invoke=None,   # 保留 _cmd_rmtodo（互動式）
     ),
     ToolEntry(
         name="projects", alias="p", group="projects",
@@ -247,6 +302,13 @@ TOOL_REGISTRY: list = [
 
     # ── other ──────────────────────────────────────────────────
     ToolEntry(
+        name="backup", alias="bk", group="other",
+        icon="💾", menu_label="備份 ChromaDB   (backup)",
+        help_line="backup                立即備份 ChromaDB（保留最新 7 份）",
+        params=[],
+        invoke=None,   # 保留 _cmd_backup（顯示備份清單）
+    ),
+    ToolEntry(
         name="integrity", alias="ig", group="other",
         icon="🛡️ ", menu_label="完整性檢查      (integrity)",
         help_line="integrity             檢查 ChromaDB 向量完整性",
@@ -273,6 +335,114 @@ TOOL_REGISTRY: list = [
         help_line="reindex               清除並重建 ChromaDB 向量索引",
         params=[],
         invoke=None,   # 保留 _cmd_reindex（確認提示 + 格式化輸出）
+    ),
+
+    # ── instincts ──────────────────────────────────────────────
+    ToolEntry(
+        name="instincts", alias="il", group="instincts",
+        icon="🧠", menu_label="列出直覺卡片    (instincts)",
+        help_line="instincts [<domain>]  列出所有直覺卡片（可篩 domain）",
+        params=[
+            ToolParam( "domain", "篩選 domain（留空=全部）：", "text", required=False ),
+        ],
+        invoke=None,   # 保留 _cmd_instincts（格式化表格）
+    ),
+    ToolEntry(
+        name="sinst", alias="si", group="instincts",
+        icon="🔍", menu_label="搜尋直覺卡片    (sinst)",
+        help_line="sinst <query> [<domain>]  語意搜尋直覺卡片",
+        params=[
+            ToolParam( "query",  "搜尋關鍵字：",                    "text" ),
+            ToolParam( "domain", "篩選 domain（留空=全部）：",     "text", required=False ),
+        ],
+        invoke=None,   # 保留 _cmd_sinst（格式化輸出）
+    ),
+    ToolEntry(
+        name="newinst", alias="ni", group="instincts",
+        icon="➕", menu_label="建立直覺卡片    (newinst)",
+        help_line="newinst               互動式建立直覺卡片",
+        params=[],
+        invoke=None,   # 保留 _cmd_newinst（多欄位互動輸入）
+    ),
+    ToolEntry(
+        name="updinst", alias="ui", group="instincts",
+        icon="📈", menu_label="更新直覺信心度  (updinst)",
+        help_line="updinst <id> <delta> [<evidence>]  更新信心度（如 +0.1）",
+        params=[
+            ToolParam( "id",    "卡片 ID：",                        "text" ),
+            ToolParam( "delta", "信心度增減（如 +0.1 / -0.05）：", "text" ),
+            ToolParam( "evidence", "新增證據（留空=不加）：",       "text", required=False ),
+        ],
+        invoke=None,   # 保留 _cmd_updinst（格式化輸出）
+    ),
+    ToolEntry(
+        name="retro", alias="re", group="instincts",
+        icon="📊", menu_label="月度復盤報告    (retro)",
+        help_line="retro [<YYYY-MM>]     生成月度復盤報告",
+        params=[
+            ToolParam( "month", "月份（YYYY-MM，留空=上月）：", "text", required=False ),
+        ],
+        invoke=None,   # 保留 _cmd_retro（格式化輸出）
+    ),
+
+    # ── agents/skills ──────────────────────────────────────────
+    ToolEntry(
+        name="agents", alias="ag", group="agents",
+        icon="🤖", menu_label="列出 Agent 模板  (agents)",
+        help_line="agents                列出所有 Agent 模板",
+        params=[],
+        invoke=None,   # 保留 _cmd_agents（格式化表格）
+    ),    ToolEntry(
+        name="dispatch", alias="dp", group="agents",
+        icon="🎯", menu_label="載入 Agent 指令  (dispatch)",
+        help_line="dispatch <agent>      載入 Agent 完整指令（名稱/觸發指令/領域）",
+        params=[
+            ToolParam( "agent_name", "Agent 名稱（@Architect / architecture / 名稱）：", "text" ),
+        ],
+        invoke=None,   # 保留 _cmd_dispatch（長文輸出）
+    ),    ToolEntry(
+        name="skills", alias="sk", group="agents",
+        icon="📦", menu_label="列出技能包      (skills)",
+        help_line="skills                列出所有 Skill 知識包",
+        params=[],
+        invoke=None,   # 保留 _cmd_skills（格式化輸出）
+    ),
+    ToolEntry(
+        name="skill", alias="sl", group="agents",
+        icon="📖", menu_label="讀取技能包      (skill)",
+        help_line="skill <name>          讀取 Skill 知識包完整內容",
+        params=[
+            ToolParam( "name", "Skill 名稱：", "text" ),
+        ],
+        invoke=None,   # 保留 _cmd_skill（全文輸出）
+    ),
+
+    # ── scheduler ──────────────────────────────────────────────
+    ToolEntry(
+        name="tasks", alias="tk", group="scheduler",
+        icon="⏰", menu_label="列出排程任務    (tasks)",
+        help_line="tasks                 列出所有排程任務",
+        params=[],
+        invoke=None,   # 保留 _cmd_tasks（格式化表格）
+    ),
+    ToolEntry(
+        name="runtask", alias="ru", group="scheduler",
+        icon="▶️ ", menu_label="手動觸發排程    (runtask)",
+        help_line="runtask <task_id>     手動觸發排程任務",
+        params=[
+            ToolParam( "task_id", "任務 ID：", "text" ),
+        ],
+        invoke=None,   # 保留 _cmd_runtask（格式化輸出）
+    ),
+    ToolEntry(
+        name="exscript", alias="es", group="scheduler",
+        icon="📜", menu_label="提取 Session 腳本 (exscript)",
+        help_line="exscript <session_id> [powershell|python]  從 VS Code Session 提取腳本",
+        params=[
+            ToolParam( "session_id",  "Session UUID：",                        "text" ),
+            ToolParam( "script_type", "腳本類型（powershell/python，預設 ps）：", "text", required=False, default="powershell" ),
+        ],
+        invoke=None,   # 保留 _cmd_exscript（格式化輸出 + 可選存檔）
     ),
 ]
 

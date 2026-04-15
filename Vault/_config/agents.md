@@ -2,7 +2,7 @@
 type: system
 inject: true
 created: 2026.04.01
-last_updated: 2026.04.11
+last_updated: 2026.04.12
 ---
 
 ## 🌐 語言規定
@@ -56,7 +56,7 @@ Step 3：（若需要操作型知識）→ load_skill(相關 Skill 名稱)
 
 ---
 
-## 可用工具（40 個，v3.7）
+## 可用工具（41 個，v3.7）
 
 ### Vault 筆記操作
 
@@ -95,6 +95,7 @@ Step 3：（若需要操作型知識）→ load_skill(相關 Skill 名稱)
 | `list_projects` | 列出所有組織及專案 | No |
 | `get_project_status` | status.md 結構化讀取（待辦 + 脈絡） | No |
 | `extract_knowledge` | conversations/ → knowledge/ 萃取 | Yes |
+| `extract_session_script` | 從 VS Code Session 提取 terminal 腳本 | No |
 
 ### Todo 管理
 
@@ -226,69 +227,19 @@ created: "YYYY-MM-DD"
 > **⚠️ 觸發條件：僅在使用者明確說「收工」時才執行。**
 > 不可在對話中途自動執行，避免消耗不必要的 Token。
 
-```
-1. generate_project_daily(org, project)           → 建立今日進度模板（冪等）
-2. log_ai_conversation(..., detail={...})         → 對話摘要 + 結構化詳細紀錄
-3. 萃取直覺（從步驟 2 的 detail 判斷）：
-   - detail.problems 有可避免錯誤 → create_instinct
-   - detail.learnings 有值得記住的模式 → create_instinct
-   - detail.interaction_issues 有使用者糾正 → create_instinct（記錄正確做法）
-   - 已有相關直覺被驗證成功/失敗 → update_instinct(±0.1)
-4. write_note(status.md, overwrite)               → 更新待辦事項
-5. generate_daily_review(date, projects=[])       → 更新每日總進度（永遠覆寫）
-```
+**執行前**：呼叫 `load_skill("Vault_EndOfDay_Skill")` 取得完整步驟與工具參數範例。
 
-### log_ai_conversation 參數說明（v3.7 精簡版）
-
-> **提供 `vscode_session_id` 後，`qa_pairs` / `files_changed` / `commands` 全部自動提取，AI 只需填寫 4 個欄位。**
+快速提示（完整細節在 Skill）：
 
 ```
-log_ai_conversation(
-  organization      = "LIFEOFDEVELOPMENT",
-  project           = "ai-memory-vault",
-  session_name      = "api-map-planning",
-  content           = "## 對話摘要\n...",            ← 簡短摘要（必填）
-  vscode_session_id = "ea20f4c8-3acc-4bc3-a100-...", ← 從系統提示 VSCODE_TARGET_SESSION_LOG 路徑取 UUID
-  detail = {
-    "topic":    "主題描述",                           ← AI 填
-    "problems": [{"problem": "...", "cause": "...", "solution": "..."}],  ← AI 填
-    "learnings":["..."],                              ← AI 填
-    "decisions":[{"decision":"...","options":"A/B","chosen":"A","reason":"..."}], ← AI 填
-    "interaction_issues": [                           ← AI 填（如有誤解）
-      {
-        "type":        "misunderstanding | correction | ambiguity | over-action | missed-intent",
-        "description": "發生了什麼",
-        "user_intent": "使用者原本想要",
-        "ai_behavior": "AI 實際做了什麼",
-        "root_cause":  "為什麼誤判",
-        "resolution":  "如何解決",
-        "prevention":  "未來如何避免"
-      }
-    ]
-    // qa_pairs     ← 省略（vscode session 檔已含完整 Q&A）
-    // files_changed← 省略（自動從 JSONL 提取）
-    // commands     ← 省略（自動從 JSONL 提取）
-  }
-)
+1. generate_project_daily(org, project)      → 今日進度模板（冪等）
+2. log_ai_conversation(..., detail={...})    → 對話摘要 + 結構化紀錄
+3. 萃取直覺（create / update_instinct）
+4. write_note(status.md, overwrite)          → 更新待辦事項
+5. edit_note(_config/handoff.md, ...)        → 更新交接索引
+6. generate_daily_review(date)               → 每日總進度（永遠覆寫）
+7. roadmap.md（完成 Phase / 里程碑才更新）
 ```
-
-> **如何取得 session_id**：系統提示中的 `VSCODE_TARGET_SESSION_LOG` 路徑包含 UUID，
-> 例如 `...chatSessions\ea20f4c8-3acc-4bc3-a100-d6d5a9f3cfb6` → session_id = `ea20f4c8-3acc-4bc3-a100-d6d5a9f3cfb6`
-
-### 將流程固化為腳本（0 Token）
-
-```
-extract_session_script(
-  session_id     = "ea20f4c8-...",
-  script_type    = "powershell",   ← 或 "python"
-  output_to_file = True,           ← True 時寫入 Vault/scripts/
-  organization   = "LIFEOFDEVELOPMENT",
-  project        = "ai-memory-vault",
-)
-```
-
-> 自動提取 session 中所有 terminal 指令 → 可直接執行的 `.ps1` / `.py` 腳本。
-> 適合「全固定流程、不需 AI 判斷」的重複性任務。執行後就是 0 Token。
 
 
 

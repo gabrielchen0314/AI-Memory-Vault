@@ -13,6 +13,6 @@ ai_summary: "永久知識卡片入口。"
 
 ## 如何使用
 
-1. 從 `life/learning/` 或工作經驗中萃取概念
+1. 從 `personal/learning/` 或工作經驗中萃取概念
 2. 使用 `templates/sections/knowledge-card/` 模板
 3. 一張卡片只講一個概念

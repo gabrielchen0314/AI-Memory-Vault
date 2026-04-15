@@ -1,16 +1,21 @@
 """
 CLI 互動介面 (v3)
-直接呼叫 VaultService / SchedulerService，對應全部 18 個 MCP 工具功能。
+直接呼叫 VaultService / SchedulerService，對應全部 MCP 工具功能。
 不依賴 LLM — 純工具操作介面，啟動快速、離線可用。
 
 指令清單：
   search <query> [--cat <category>] [--type <doc_type>] [--mode keyword|semantic]
   read <path>
   write <path>
+  edit <path>                      局部文字替換（精確替換，不全文覆寫）
+  grep <pattern> [<path>] [-r]     精確文字 / 正規表達式搜尋
   delete <path>
   sync
+  batchwrite <json>                批次寫入筆記（JSON 檔案路徑）
   status <org> <project>          讀取專案狀態 (get_project_status)
   todo <path> <text> [done|undone]
+  addtodo <path> <text> [<section>]  新增 todo 項目
+  rmtodo <path> <text>               移除 todo 項目
   daily <org> <project> [<date>]   生成專案每日進度
   review [<date>]                  生成每日總進度表 (generate_daily_review)
   weekly                           生成每週總進度表
@@ -20,14 +25,29 @@ CLI 互動介面 (v3)
   aiweekly [<date>]                生成 AI 對話週報
   aimonthly [<date>]               生成 AI 對話月報
   projects                         列出所有組織與專案
+  backup                           立即備份 ChromaDB（保留最新 7 份）
   integrity                        檢查 ChromaDB 向量完整性
-  clean                            清除孤立向量記錄（對應 .md 已刪除）  rename <old_path> <new_path>     移動或重命名 .md 檔案並同步向量索引  checkindex                       檢查向量索引是否因設定變更需重建
+  clean                            清除孤立向量記錄（對應 .md 已刪除）
+  rename <old_path> <new_path>     移動或重命名 .md 檔案並同步向量索引
+  checkindex                       檢查向量索引是否因設定變更需重建
   reindex                          清除並重建 ChromaDB 向量索引
+  instincts [<domain>]             列出所有直覺卡片
+  sinst <query> [<domain>]         語意搜尋直覺卡片
+  newinst                          互動式建立直覺卡片
+  updinst <id> <delta> [<evidence>] 更新直覺信心度
+  retro [<YYYY-MM>]                生成月度復盤報告
+  agents                           列出所有 Agent 模板
+  dispatch <agent>                 載入 Agent 完整指令（名稱/觸發/領域）
+  skills                           列出所有 Skill 知識包
+  skill <name>                     讀取 Skill 知識包完整內容
+  tasks                            列出所有排程任務
+  runtask <task_id>                手動觸發排程任務
+  exscript <session_id> [type]     從 VS Code Session 提取腳本
   help
   q / exit
 
 @author gabrielchen
-@version 3.0
+@version 3.3
 @since AI-Memory-Vault 3.0
 @date 2026.04.04
 """
@@ -272,6 +292,11 @@ class VaultRepl:
         elif iCmd == "sync":
             self._cmd_sync( [] )
 
+        elif iCmd == "batchwrite":
+            _JsonPath = q.text( "JSON 檔案路徑：" ).ask()
+            if _JsonPath:
+                self._cmd_batchwrite( [_JsonPath] )
+
         elif iCmd == "status":
             _Org  = self._pick_org( q )
             if not _Org:
@@ -311,7 +336,147 @@ class VaultRepl:
         elif iCmd == "reindex":
             self._cmd_reindex( [] )
 
+        elif iCmd == "edit":
+            _Path = self._pick_vault_path( q )
+            if _Path:
+                self._cmd_edit( [_Path] )
+
+        elif iCmd == "grep":
+            _Pattern = q.text( "搜尋文字（或 regex）：" ).ask()
+            if not _Pattern:
+                return
+            _Top     = self._pick_top_folder( q, title="限縮目錄（留空=全 Vault）：", allow_skip=True )
+            _IsRegex = q.confirm( "使用正規表達式？", default=False ).ask()
+            _Args    = [_Pattern]
+            if _Top:
+                _Args.append( _Top )
+            if _IsRegex:
+                _Args.append( "-r" )
+            self._cmd_grep( _Args )
+
+        elif iCmd == "backup":
+            self._cmd_backup( [] )
+
+        elif iCmd == "addtodo":
+            _Org  = self._pick_org( q )
+            if not _Org:
+                return
+            _Proj = self._pick_project( q, _Org )
+            if not _Proj:
+                return
+            _Path = self._pick_project_file( q, _Org, _Proj )
+            if not _Path:
+                return
+            _Text    = q.text( "新增 Todo 文字：" ).ask()
+            if not _Text:
+                return
+            _Section = q.text( "目標段落（留空=待處理）：" ).ask() or ""
+            self._cmd_addtodo( [_Path, _Text] + ( [_Section] if _Section else [] ) )
+
+        elif iCmd == "rmtodo":
+            _Org  = self._pick_org( q )
+            if not _Org:
+                return
+            _Proj = self._pick_project( q, _Org )
+            if not _Proj:
+                return
+            _Path = self._pick_project_file( q, _Org, _Proj )
+            if not _Path:
+                return
+            _Text = q.text( "要移除的 Todo 文字（部分比對）：" ).ask()
+            if _Text:
+                self._cmd_rmtodo( [_Path, _Text] )
+
+        elif iCmd == "instincts":
+            _Domain = q.text( "篩選 domain（留空=全部）：" ).ask() or ""
+            self._cmd_instincts( [_Domain] if _Domain else [] )
+
+        elif iCmd == "sinst":
+            _Query = q.text( "搜尋關鍵字：" ).ask()
+            if not _Query:
+                return
+            _Domain = q.text( "篩選 domain（留空=全部）：" ).ask() or ""
+            _Args = [_Query]
+            if _Domain:
+                _Args.append( _Domain )
+            self._cmd_sinst( _Args )
+
+        elif iCmd == "newinst":
+            self._cmd_newinst( [] )
+
+        elif iCmd == "updinst":
+            _Id    = q.text( "卡片 ID（slug 格式）：" ).ask()
+            if not _Id:
+                return
+            _Delta = q.text( "信心度增減（如 +0.1 / -0.05）：" ).ask()
+            if not _Delta:
+                return
+            _Evid  = q.text( "新增證據（留空=不加）：" ).ask() or ""
+            _Args  = [_Id, _Delta]
+            if _Evid:
+                _Args.append( _Evid )
+            self._cmd_updinst( _Args )
+
+        elif iCmd == "retro":
+            _Month = q.text( "月份（YYYY-MM，留空=上月）：" ).ask() or ""
+            self._cmd_retro( [_Month] if _Month else [] )
+
+        elif iCmd == "agents":
+            self._cmd_agents( [] )
+
+        elif iCmd == "dispatch":
+            _Name = q.text( "Agent 名稱（@Architect / architecture / 名稱）：" ).ask()
+            if _Name:
+                self._cmd_dispatch( [_Name] )
+
+        elif iCmd == "skills":
+            self._cmd_skills( [] )
+
+        elif iCmd == "skill":
+            _Name = q.text( "Skill 名稱（檔名或不含 .md）：" ).ask()
+            if _Name:
+                self._cmd_skill( [_Name] )
+
+        elif iCmd == "tasks":
+            self._cmd_tasks( [] )
+
+        elif iCmd == "runtask":
+            _TaskId = q.text( "任務 ID（用 tasks 查看可用 ID）：" ).ask()
+            if _TaskId:
+                self._cmd_runtask( [_TaskId] )
+
+        elif iCmd == "exscript":
+            _Sid  = q.text( "Session UUID：" ).ask()
+            if not _Sid:
+                return
+            _Type = q.select(
+                "腳本類型：",
+                choices=[ "powershell", "python" ],
+            ).ask()
+            self._cmd_exscript( [_Sid, _Type or "powershell"] )
+
     #region 私有方法 — 選單輔助
+    def _read_multiline( self ) -> str:
+        """讀取多行輸入，連續兩個空行或 Ctrl+D 結束。"""
+        _Lines: list = []
+        _EmptyCount  = 0
+        try:
+            while True:
+                _L = input()
+                if _L == "":
+                    _EmptyCount += 1
+                    if _EmptyCount >= 2:
+                        break
+                    _Lines.append( _L )
+                else:
+                    _EmptyCount = 0
+                    _Lines.append( _L )
+        except EOFError:
+            pass
+        while _Lines and _Lines[-1] == "":
+            _Lines.pop()
+        return "\n".join( _Lines )
+
     def _pick_org( self, q ) -> Optional[str]:
         """列出所有組織讓使用者選擇。"""
         import os
@@ -414,11 +579,14 @@ class VaultRepl:
     def _build_help( self ) -> str:
         """根據 TOOL_REGISTRY 全自動建立 help 文字（每次 __init__ 呼叫一次）。"""
         _GroupLabels = {
-            "files":    "檔案操作",
-            "projects": "專案管理",
-            "reviews":  "進度表",
-            "ai":       "AI 對話",
-            "other":    "其他",
+            "files":     "檔案操作",
+            "projects":  "專案管理",
+            "reviews":   "進度表",
+            "ai":        "AI 對話",
+            "other":     "維護工具",
+            "instincts": "直覺記憶",
+            "agents":    "Agent / Skill",
+            "scheduler": "排程",
         }
         _Lines = [
             "",
@@ -537,6 +705,7 @@ class VaultRepl:
         "rename":     "_cmd_rename",
         "list":       "_cmd_list",
         "sync":       "_cmd_sync",
+        "batchwrite": "_cmd_batchwrite",
         "status":     "_cmd_status",
         "todo":       "_cmd_todo",
         "projects":   "_cmd_projects",
@@ -544,6 +713,23 @@ class VaultRepl:
         "clean":      "_cmd_clean_orphans",
         "checkindex": "_cmd_checkindex",
         "reindex":    "_cmd_reindex",
+        "edit":       "_cmd_edit",
+        "grep":       "_cmd_grep",
+        "backup":     "_cmd_backup",
+        "addtodo":    "_cmd_addtodo",
+        "rmtodo":     "_cmd_rmtodo",
+        "instincts":  "_cmd_instincts",
+        "sinst":      "_cmd_sinst",
+        "newinst":    "_cmd_newinst",
+        "updinst":    "_cmd_updinst",
+        "retro":      "_cmd_retro",
+        "agents":     "_cmd_agents",
+        "dispatch":   "_cmd_dispatch",
+        "skills":     "_cmd_skills",
+        "skill":      "_cmd_skill",
+        "tasks":      "_cmd_tasks",
+        "runtask":    "_cmd_runtask",
+        "exscript":   "_cmd_exscript",
     }
 
     def _dispatch( self, iLine: str ) -> None:
@@ -625,27 +811,7 @@ class VaultRepl:
             return
         _Path = iArgs[0]
         print( f"✏️  寫入 {_Path}（輸入內容，連續兩個空行或 Ctrl+D 結束）：" )
-        _Lines: list = []
-        _EmptyCount = 0
-        try:
-            while True:
-                _L = input()
-                if _L == "":
-                    _EmptyCount += 1
-                    if _EmptyCount >= 2:
-                        break
-                    _Lines.append( _L )
-                else:
-                    _EmptyCount = 0
-                    _Lines.append( _L )
-        except EOFError:
-            pass
-
-        # 去除末尾多餘空行
-        while _Lines and _Lines[-1] == "":
-            _Lines.pop()
-
-        _Content = "\n".join( _Lines )
+        _Content = self._read_multiline()
         if not _Content:
             print( "⚠️  內容為空，取消寫入。" )
             return
@@ -887,4 +1053,434 @@ class VaultRepl:
             f"{_Stats['total_files']} 個 .md 檔 / "
             f"新增 {_Stats['index_stats']['num_added']} 筆"
         )
+
+    def _cmd_edit( self, iArgs: list ) -> None:
+        """edit <path>  — 精確文字替換（多行輸入）"""
+        if not iArgs:
+            print( "用法：edit <path>" )
+            return
+        _Path = iArgs[0]
+        print( f"✍️  編輯 {_Path}" )
+        print( "--- 輸入要替換的文字（連續兩個空行結束）---" )
+        _OldText = self._read_multiline()
+        if not _OldText:
+            print( "⚠️  舊文字為空，取消。" )
+            return
+        print( "--- 輸入替換後的文字（連續兩個空行結束）---" )
+        _NewText = self._read_multiline()
+        from services.vault import VaultService
+        _Stats, _Err = VaultService.edit_note( _Path, _OldText, _NewText )
+        if _Err:
+            print( f"❌ {_Err}" )
+        else:
+            print(
+                f"✅ 已編輯：{_Path}"
+                f"（移除 {_Stats.get('chars_removed', 0)} 字元，新增 {_Stats.get('chars_added', 0)} 字元，"
+                f"{_Stats.get('total_chunks', 0)} chunks）"
+            )
+
+    def _cmd_grep( self, iArgs: list ) -> None:
+        """grep <pattern> [<path>] [-r]  — 精確文字 / regex 搜尋"""
+        if not iArgs:
+            print( "用法：grep <pattern> [<path>] [-r]" )
+            return
+        _IsRegex = "-r" in iArgs
+        _RestArgs = [ a for a in iArgs if a != "-r" ]
+        _Pattern = _RestArgs[0]
+        _Path    = _RestArgs[1] if len( _RestArgs ) > 1 else ""
+        from services.vault import VaultService
+        _Results, _Err = VaultService.grep( _Pattern, _Path, _IsRegex )
+        if _Err:
+            print( f"❌ {_Err}" )
+            return
+        if not _Results:
+            _Scope = _Path or "/"
+            print( f"找不到符合 '{_Pattern}' 的結果（範圍：{_Scope}）" )
+            return
+        print( f"找到 {len( _Results )} 筆：\n" )
+        for _R in _Results:
+            print( f"  {_R['file']}:{_R['line']}:{_R['col']}  {_R['text']}" )
+
+    def _cmd_backup( self, iArgs: list ) -> None:
+        """backup — 立即備份 ChromaDB"""
+        from config import ConfigManager
+        from services.backup import BackupService
+        print( "💾 備份中...", end="", flush=True )
+        _Config = ConfigManager.load()
+        _Svc    = BackupService( _Config )
+        _Path, _Err = _Svc.backup_chromadb()
+        if _Err:
+            print( f"\r❌ 備份失敗：{_Err}" )
+            return
+        _Cleaned = _Svc.cleanup()
+        _Backups = _Svc.list_backups()
+        print( f"\r✅ 備份完成：{_Path}" )
+        print( f"   清除 {_Cleaned} 份舊備份，目前保留 {len( _Backups )} 份" )
+        if _Backups:
+            print( "   現有備份：" )
+            for _B in _Backups:
+                print( f"     - {_B['name']}（{_B['size_mb']:.1f} MB）" )
+
+    def _cmd_addtodo( self, iArgs: list ) -> None:
+        """addtodo <path> <text> [<section>]  — 新增 todo 項目"""
+        if len( iArgs ) < 2:
+            print( "用法：addtodo <path> <text> [<section>]" )
+            return
+        _Path    = iArgs[0]
+        _Section = iArgs[-1] if len( iArgs ) > 2 else ""
+        _Text    = " ".join( iArgs[1:] if not _Section else iArgs[1:-1] )
+        # 若 section 看起來像 todo 文字（無 ## 前綴），清空
+        if _Section and not _Section.startswith( "##" ) and len( iArgs ) == 2:
+            _Section = ""
+        from services.vault import VaultService
+        _Stats, _Err = VaultService.add_todo( _Path, _Text, _Section or None )
+        if _Err:
+            print( f"❌ {_Err}" )
+        else:
+            print( f"✅ 已新增：- [ ] {_Text}" )
+
+    def _cmd_rmtodo( self, iArgs: list ) -> None:
+        """rmtodo <path> <text>  — 移除 todo 項目（整行刪除）"""
+        if len( iArgs ) < 2:
+            print( "用法：rmtodo <path> <text>" )
+            return
+        _Path = iArgs[0]
+        _Text = " ".join( iArgs[1:] )
+        _Confirm = input( f"⚠️  確認移除 todo「{_Text}」？（y/N）: " ).strip().lower()
+        if _Confirm != "y":
+            print( "取消。" )
+            return
+        from services.vault import VaultService
+        _Stats, _Err = VaultService.remove_todo( _Path, _Text )
+        if _Err:
+            print( f"❌ {_Err}" )
+        else:
+            print( f"✅ 已移除：{_Stats.get( 'removed_line', _Text )}" )
+
+    def _get_instinct_service( self ):
+        """取得 InstinctService 單例。"""
+        from config import ConfigManager
+        from services.instinct import InstinctService
+        _Config = ConfigManager.load()
+        return InstinctService( _Config )
+
+    def _cmd_instincts( self, iArgs: list ) -> None:
+        """instincts [<domain>]  — 列出所有直覺卡片"""
+        _Domain = iArgs[0] if iArgs else ""
+        _Svc     = self._get_instinct_service()
+        _Results = _Svc.list_all( iDomain=_Domain )
+        if not _Results:
+            print( "目前沒有直覺卡片。" )
+            return
+
+        _Sorted = sorted( _Results, key=lambda x: float( x.get( "confidence", 0 ) ), reverse=True )
+        _Cfg    = _Svc._load_config()
+        _Thresh = _Cfg["instincts"]["auto_apply_threshold"]
+
+        print( f"\n共 {len( _Sorted )} 張直覺卡片（自動套用閾值：{_Thresh}）\n" )
+        print( f"  {'ID':<35} {'信心':>4}  {'Domain':<14} {'建立日':<12} 狀態" )
+        print( "  " + "─" * 80 )
+        for _R in _Sorted:
+            _Conf   = float( _R.get( "confidence", 0 ) )
+            _Status = "🟢 自動" if _Conf >= _Thresh else "🟡 參考"
+            print(
+                f"  {_R.get( 'id', '' ):<35} {_Conf:>4.1f}  "
+                f"{_R.get( 'domain', '' ):<14} {_R.get( 'created', '' ):<12} {_Status}"
+            )
+        print()
+
+    def _cmd_sinst( self, iArgs: list ) -> None:
+        """sinst <query> [<domain>]  — 語意搜尋直覺卡片"""
+        if not iArgs:
+            print( "用法：sinst <query> [<domain>]" )
+            return
+        _Query  = iArgs[0]
+        _Domain = iArgs[1] if len( iArgs ) > 1 else ""
+        _Svc     = self._get_instinct_service()
+        _Results = _Svc.search( iQuery=_Query, iDomain=_Domain )
+        if not _Results:
+            print( f"找不到符合「{_Query}」的直覺卡片。" )
+            return
+        print( f"\n找到 {len( _Results )} 張直覺卡片：\n" )
+        for _R in _Results:
+            print(
+                f"  🧠 {_R.get( 'id', '?' )}（{_R.get( 'domain', '?' )}，"
+                f"信心 {_R.get( 'confidence', '?' )}）"
+            )
+            print( f"     觸發：{_R.get( 'trigger', '' )[:100]}" )
+            _Snippet = _R.get( "snippet", "" )[:150]
+            if _Snippet:
+                print( f"     摘要：{_Snippet}" )
+            print()
+
+    def _cmd_newinst( self, iArgs: list ) -> None:
+        """newinst — 互動式建立直覺卡片"""
+        print( "➕ 建立直覺卡片\n" )
+        _Id      = input( "  ID（slug 格式，如 debug-one-change）：" ).strip()
+        if not _Id:
+            print( "⚠️  ID 不可為空。" )
+            return
+        _Title   = input( "  標題：" ).strip()
+        if not _Title:
+            print( "⚠️  標題不可為空。" )
+            return
+        _Trigger = input( "  觸發條件（什麼情境下想起這條）：" ).strip()
+        if not _Trigger:
+            print( "⚠️  觸發條件不可為空。" )
+            return
+        _Domain  = input( "  Domain（debugging/workflow/csharp/lua/python/architecture）：" ).strip()
+        if not _Domain:
+            print( "⚠️  Domain 不可為空。" )
+            return
+        _Action  = input( "  遇到觸發條件時該怎麼做：" ).strip()
+        if not _Action:
+            print( "⚠️  Action 不可為空。" )
+            return
+        _Pattern    = input( "  正確模式範例（留空跳過，連續兩空行結束）：" ).strip()
+        if _Pattern:
+            print( "  （繼續輸入，連續兩空行結束）" )
+            _Pattern += "\n" + self._read_multiline()
+        _Evidence   = input( "  證據（留空跳過）：" ).strip()
+        _Reflection = input( "  錯誤反思（留空跳過）：" ).strip()
+        _ConfStr    = input( "  初始信心度（0.0~1.0，留空=0.6）：" ).strip()
+        _Confidence = float( _ConfStr ) if _ConfStr else 0.0
+
+        _Svc  = self._get_instinct_service()
+        _Path = _Svc.create(
+            iId=_Id, iTrigger=_Trigger, iDomain=_Domain, iTitle=_Title,
+            iAction=_Action, iCorrectPattern=_Pattern,
+            iEvidence=_Evidence, iReflection=_Reflection,
+            iConfidence=_Confidence,
+        )
+        print( f"\n✅ 直覺卡片已建立：{_Path}" )
+
+    def _cmd_updinst( self, iArgs: list ) -> None:
+        """updinst <id> <delta> [<evidence>]  — 更新信心度"""
+        if len( iArgs ) < 2:
+            print( "用法：updinst <id> <delta> [<evidence>]" )
+            return
+        _Id    = iArgs[0]
+        try:
+            _Delta = float( iArgs[1] )
+        except ValueError:
+            print( f"❌ delta 必須是數字（如 +0.1），收到：{iArgs[1]}" )
+            return
+        _Evid  = " ".join( iArgs[2:] ) if len( iArgs ) > 2 else ""
+        _Svc   = self._get_instinct_service()
+        _Meta  = _Svc.update( iId=_Id, iConfidenceDelta=_Delta, iNewEvidence=_Evid )
+        print( f"✅ 已更新 {_Id}（信心度 → {_Meta.get( 'confidence', '?' )}）" )
+
+    def _cmd_retro( self, iArgs: list ) -> None:
+        """retro [<YYYY-MM>]  — 生成月度復盤報告"""
+        _Month = iArgs[0] if iArgs else ""
+        _Svc   = self._get_instinct_service()
+        print( "📊 生成復盤報告中...", end="", flush=True )
+        _Path  = _Svc.generate_retrospective( iMonth=_Month )
+        print( f"\r✅ 月度復盤報告已生成：{_Path}" )
+
+    def _cmd_agents( self, iArgs: list ) -> None:
+        """agents — 列出所有 Agent 模板"""
+        from config import ConfigManager
+        from services.agent_router import AgentRouter
+        _Config = ConfigManager.load()
+        _Router = AgentRouter( _Config.vault_path )
+        _Agents = _Router.list_agents()
+        if not _Agents:
+            print( "Vault 中沒有任何 Agent 模板。" )
+            return
+        print( f"\n共 {len( _Agents )} 個 Agent：\n" )
+        print( f"  {'觸發指令':<20} {'領域':<16} 說明" )
+        print( "  " + "─" * 60 )
+        for _A in _Agents:
+            print( f"  {_A['trigger']:<20} {_A['domain']:<16} {_A['summary']}" )
+        print()
+
+    def _cmd_dispatch( self, iArgs: list ) -> None:
+        """dispatch <agent> — 載入 Agent 完整指令"""
+        if not iArgs:
+            print( "用法：dispatch <agent>（名稱 / @觸發指令 / 領域）" )
+            return
+        from config import ConfigManager
+        from services.agent_router import AgentRouter
+        _Config = ConfigManager.load()
+        _Router = AgentRouter( _Config.vault_path )
+        _Query  = " ".join( iArgs )
+        _Tpl    = _Router.resolve( _Query )
+        if not _Tpl:
+            _Available = _Router.list_agents()
+            _Names = ", ".join( _A["trigger"] for _A in _Available )
+            print( f"❌ 找不到 Agent '{_Query}'。可用：{_Names}" )
+            return
+        print( f"\n# {_Tpl.name} Agent" )
+        print( f"  領域：{_Tpl.domain}" )
+        print( f"  觸發：{_Tpl.trigger}" )
+        print( f"  工具：{', '.join( _Tpl.mcp_tools )}" )
+        if _Tpl.related_rules:
+            print( f"  規則：{', '.join( _Tpl.related_rules )}" )
+        print( f"\n{_Tpl.body}\n" )
+
+    def _cmd_batchwrite( self, iArgs: list ) -> None:
+        """batchwrite <json> — 批次寫入筆記（JSON 檔案路徑）"""
+        if not iArgs:
+            print( "用法：batchwrite <json_file>" )
+            print( "  JSON 格式：[{\"file_path\": \"...\", \"content\": \"...\", \"mode\": \"overwrite|append\"}, ...]" )
+            return
+        import json, os
+        _JsonPath = iArgs[0]
+        if not os.path.isfile( _JsonPath ):
+            print( f"❌ 找不到檔案：{_JsonPath}" )
+            return
+        try:
+            with open( _JsonPath, "r", encoding="utf-8" ) as _F:
+                _Notes = json.load( _F )
+        except ( json.JSONDecodeError, UnicodeDecodeError ) as _E:
+            print( f"❌ JSON 解析失敗：{_E}" )
+            return
+        if not isinstance( _Notes, list ) or not _Notes:
+            print( "❌ JSON 必須是非空陣列" )
+            return
+        for _N in _Notes:
+            if not isinstance( _N, dict ) or "file_path" not in _N or "content" not in _N:
+                print( "❌ 每筆必須含 file_path 和 content 欄位" )
+                return
+
+        print( f"📝 即將批次寫入 {len( _Notes )} 筆筆記：" )
+        for _N in _Notes:
+            _Mode = _N.get( "mode", "overwrite" )
+            print( f"  {_N['file_path']}（{_Mode}）" )
+        _Confirm = input( "  確認寫入？（y/N）: " ).strip().lower()
+        if _Confirm != "y":
+            print( "取消。" )
+            return
+
+        from services.vault import VaultService
+        _Results, _BatchStats, _Err = VaultService.batch_write_notes( _Notes )
+        if _Err:
+            print( f"❌ {_Err}" )
+            return
+        _OkCount   = sum( 1 for _R in _Results if _R["ok"] )
+        _FailCount = len( _Results ) - _OkCount
+        _Added     = _BatchStats["index_stats"].get( "num_added", 0 )
+        _Updated   = _BatchStats["index_stats"].get( "num_updated", 0 )
+        print( f"\n✅ 批次寫入：{_OkCount} 成功，{_FailCount} 失敗" )
+        print( f"   索引：{_BatchStats['total_chunks']} chunks（新增={_Added}，更新={_Updated}）" )
+        for _R in _Results:
+            if _R["ok"]:
+                print( f"  ✅  {_R['file_path']}（{_R['chars']} 字元）" )
+            else:
+                print( f"  ❌  {_R['file_path']} — {_R['error']}" )
+
+    def _cmd_skills( self, iArgs: list ) -> None:
+        """skills — 列出所有 Skill 知識包"""
+        import os
+        from config import ConfigManager
+        _Config   = ConfigManager.load()
+        _SkillDir = os.path.join( _Config.vault_path, "workspaces", "_global", "skills" )
+        if not os.path.isdir( _SkillDir ):
+            print( "Skill 目錄不存在。" )
+            return
+        _Files = sorted(
+            _F for _F in os.listdir( _SkillDir )
+            if _F.endswith( ".md" ) and _F != "index.md"
+        )
+        if not _Files:
+            print( "沒有任何 Skill 技能包。" )
+            return
+        print( f"\n可用技能包（{len( _Files )} 個）：\n" )
+        for _F in _Files:
+            _Abs = os.path.join( _SkillDir, _F )
+            _Kb  = os.path.getsize( _Abs ) / 1024
+            print( f"  {_F:<40} ({_Kb:.1f}KB)" )
+        print()
+
+    def _cmd_skill( self, iArgs: list ) -> None:
+        """skill <name>  — 讀取 Skill 知識包完整內容"""
+        if not iArgs:
+            print( "用法：skill <name>" )
+            return
+        import os
+        from config import ConfigManager
+        _Config   = ConfigManager.load()
+        _SkillDir = os.path.join( _Config.vault_path, "workspaces", "_global", "skills" )
+        _Name     = iArgs[0]
+        if not _Name.endswith( ".md" ):
+            _Name += ".md"
+        _Abs  = os.path.join( _SkillDir, _Name )
+        _Real = os.path.realpath( _Abs )
+        if not _Real.startswith( os.path.realpath( _SkillDir ) ):
+            print( "❌ 路徑安全驗證失敗。" )
+            return
+        if not os.path.isfile( _Abs ):
+            print( f"❌ 找不到 '{_Name}'（workspaces/_global/skills/）" )
+            return
+        with open( _Abs, "r", encoding="utf-8" ) as _F:
+            print( "\n" + _F.read() + "\n" )
+
+    def _cmd_tasks( self, iArgs: list ) -> None:
+        """tasks — 列出所有排程任務"""
+        from services.auto_scheduler import AutoScheduler
+        _Tasks = AutoScheduler.list_tasks()
+        if not _Tasks:
+            print( "沒有排程任務。" )
+            return
+        print( f"\n共 {len( _Tasks )} 個排程任務：\n" )
+        print( f"  {'ID':<18} {'名稱':<20} 排程" )
+        print( "  " + "─" * 60 )
+        for _T in _Tasks:
+            print( f"  {_T['id']:<18} {_T['name']:<20} {_T['schedule']}" )
+            print( f"  {'':>18} {_T['description']}" )
+        print()
+
+    def _cmd_runtask( self, iArgs: list ) -> None:
+        """runtask <task_id>  — 手動觸發排程任務"""
+        if not iArgs:
+            print( "用法：runtask <task_id>（用 tasks 查看可用 ID）" )
+            return
+        _TaskId = iArgs[0]
+        print( f"▶️  觸發排程任務 {_TaskId}...", end="", flush=True )
+        from services.auto_scheduler import AutoScheduler
+        _Auto    = AutoScheduler( self.m_Config )
+        _Results = _Auto.run_task( _TaskId )
+        print( "\r" + " " * 40 + "\r", end="" )
+        for _Label, _Detail in _Results:
+            print( f"  {_Label}: {_Detail}" )
+
+    def _cmd_exscript( self, iArgs: list ) -> None:
+        """exscript <session_id> [powershell|python]  — 提取 Session 腳本"""
+        if not iArgs:
+            print( "用法：exscript <session_id> [powershell|python]" )
+            return
+        _Sid  = iArgs[0]
+        _Type = iArgs[1] if len( iArgs ) > 1 else "powershell"
+        if _Type not in ( "powershell", "python" ):
+            print( f"⚠️  不支援的腳本類型：{_Type}（支援 powershell / python）" )
+            return
+
+        from config import ConfigManager
+        _Config = ConfigManager.load()
+        if not _Config.vscode_chat_dir:
+            print( "❌ config.json 未設定 vscode_chat_dir" )
+            return
+
+        from services.session_extractor import SessionExtractor
+        _SE     = SessionExtractor( _Config.vscode_chat_dir, _Config.vault_path )
+        _Script = _SE.extract_script( _Sid, _Type )
+        if not _Script:
+            print( f"Session {_Sid[:8]} 中無 terminal 指令可提取。" )
+            return
+
+        print( f"\n--- {_Type} 腳本（{_Sid[:8]}）---\n" )
+        print( _Script )
+        print( "\n--- 結束 ---" )
+
+        _Save = input( "\n  儲存到 Vault？（y/N）: " ).strip().lower()
+        if _Save == "y":
+            from pathlib import Path
+            _Ext = ".ps1" if _Type == "powershell" else ".py"
+            _Dir = Path( _Config.vault_path ) / "scripts"
+            _Dir.mkdir( parents=True, exist_ok=True )
+            _File = _Dir / f"extracted-{_Sid[:8]}{_Ext}"
+            _File.write_text( _Script, encoding="utf-8" )
+            print( f"✅ 已儲存：{_File}" )
+
     #endregion

@@ -48,6 +48,19 @@ ai_summary: "Vault 模板系統主索引。"
 |------|------|
 | `company-workspace/` | 公司工作域 |
 | `rules/` | 編碼規範 |
+
+---
+
+## 新增 Agent 必做清單
+
+> **每次新增 Agent 模板，必須完成以下步驟。**
+
+| # | 檔案 | 動作 |
+|---|------|------|
+| 1 | 本檔 `templates/index.md` | 在 Agent 列表加入新行 |
+| 2 | `_config/agents.md` | 在「任務類型 → Agent 對照表」加入新行 |
+| 3 | VS Code `prompts/{name}.agent.md` | 建立對應的 `.agent.md` 檔案 |
+| 4 | VS Code `prompts/global-prompts-maintenance.instructions.md` | 在 `.agent.md` 表格加入新行 |
 | `meeting/` | 會議紀錄 |
 | `journal/` | 日記 |
 | `learning/` | 學習筆記 |

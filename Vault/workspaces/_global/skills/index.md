@@ -2,7 +2,7 @@
 type: skill-index
 category: skills
 created: 2026-04-10
-last_updated: 2026-04-10
+last_updated: 2026-04-12
 ai_summary: "AI Memory Vault Skills 知識包索引 — 列出所有可用技能包及其適用場景"
 ---
 
@@ -18,6 +18,7 @@ ai_summary: "AI Memory Vault Skills 知識包索引 — 列出所有可用技能
 | `VaultWriteConventions_Skill.md` | 撰寫 Vault 筆記時確認格式規範 | 全體 |
 | `Debug_Skill.md` | 除錯流程 + 逐步收縮法 | Architect, CodeReviewer |
 | `ApiMap_Skill.md` | 建立 API Map 文件格式 | DocUpdater, Architect |
+| `Vault_EndOfDay_Skill.md` | 收工 SOP — 每日結束工作的完整 7 步驟流程 | 全體 |
 
 ## 使用方式
 

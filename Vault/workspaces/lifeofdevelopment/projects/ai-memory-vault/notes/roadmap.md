@@ -3,7 +3,7 @@ type: roadmap
 project: ai-memory-vault
 org: LIFEOFDEVELOPMENT
 created: 2026.04.04
-last_updated: 2026.04.10
+last_updated: 2026.04.12
 ---
 
 # 專案 Roadmap — AI Memory Vault
@@ -119,16 +119,11 @@ AI-powered Vault 知識管理系統，以 MCP Server 形式整合至 VS Code / C
 
 ## 進行中
 
-### Phase 23（Skills 知識包建立 + 收尾）
-
-- [ ] 建立 `workspaces/_global/skills/` 目錄 + 首批 Skill 知識包
-- [ ] 驗證 `detail` 參數 FastMCP 相容性（MCP 重啟後測試）
-- [ ] PyInstaller rebuild（打包至 v3.6.0）
-- [ ] 安裝包版本號更新（v3.5.0 → v3.6.0）
+（當前無進行中 Phase）
 
 ---
 
-## 長期展望（Phase 24+）
+## 長期展望（Phase 25+）
 
 | 方向 | 說明 |
 |------|------|
@@ -149,80 +144,5 @@ AI-powered Vault 知識管理系統，以 MCP Server 形式整合至 VS Code / C
 | CLI 手動 dispatch 未完全遷移 | 低 | ~10 個工具尚未納入 TOOL_REGISTRY |
 | ChromaDB migration 機制 | 中 | Schema 變更時無 migration 路徑 |
 
----
+> **注意**：MCP 工具完整清單（含版本與說明）請參閱 `_config/agents.md`。roadmap 僅記錄開發歷史。
 
-## MCP Tools 清單（39 個，v3.6）
-
-### Vault 筆記操作（vault_tools.py）
-
-| Tool | 版本加入 | 說明 |
-|------|----------|------|
-| `search_vault` | v1 | BM25 + 向量混合搜尋 |
-| `sync_vault` | v1 | 增量同步 .md → ChromaDB |
-| `read_note` | v1 | 讀取 Vault 筆記原始內容 |
-| `write_note` | v1 | 寫入/更新 Vault 筆記 + 索引 |
-| `edit_note` | v3.6 | 局部文字替換（old→new，不全覆蓋） |
-| `delete_note` | v3.5 | 刪除 .md 並移除 ChromaDB 向量 |
-| `rename_note` | v3.6 | 移動筆記 + 向量再索引 |
-| `list_notes` | v3.3 | 列出指定目錄下所有 .md |
-| `batch_write_notes` | v3.3 | 批次寫入多筆，單次索引 |
-| `grep_vault` | v3.6 | 精確文字 / 正規表達式搜尋 |
-
-### 排程生成工具（scheduler_tools.py）
-
-| Tool | 版本加入 | 說明 |
-|------|----------|------|
-| `generate_project_daily` | v3 | 專案每日進度模板（冪等） |
-| `generate_daily_review` | v3 | 每日總進度表（永遠覆寫） |
-| `generate_weekly_review` | v3 | 每週總進度表（永遠覆寫） |
-| `generate_monthly_review` | v3 | 每月總進度表（永遠覆寫） |
-| `log_ai_conversation` | v3 | 記錄 AI 對話 + 可選 detail 結構化紀錄 |
-| `generate_ai_weekly_analysis` | v3 | AI 對話週報分析模板 |
-| `generate_ai_monthly_analysis` | v3 | AI 對話月報分析模板 |
-| `generate_project_status` | v3.2 | status.md 模板生成（冪等） |
-| `list_scheduled_tasks` | v3.5 | 列出排程任務清單 |
-| `run_scheduled_task` | v3.5 | 手動觸發排程任務 |
-
-### 專案與知識管理（project_tools.py）
-
-| Tool | 版本加入 | 說明 |
-|------|----------|------|
-| `list_projects` | v3.2 | 列出所有組織及專案 |
-| `get_project_status` | v3.4 | status.md 結構化讀取 |
-| `extract_knowledge` | v3.5 | conversations/ → knowledge/ 萃取 |
-
-### Todo 管理（todo_tools.py）
-
-| Tool | 版本加入 | 說明 |
-|------|----------|------|
-| `update_todo` | v3.3 | todo checkbox toggle |
-| `add_todo` | v3.6 | 新增 todo 項目（指定 section） |
-| `remove_todo` | v3.6 | 整行刪除 todo 項目 |
-
-### 向量索引管理（index_tools.py）
-
-| Tool | 版本加入 | 說明 |
-|------|----------|------|
-| `check_vault_integrity` | v3.3 | 孤立向量偵測 |
-| `clean_orphans` | v3.6 | 外科手術清除孤立向量 |
-| `check_index_status` | v3.6 | 索引設定比對（是否需重建） |
-| `reindex_vault` | v3.6 | 清除並重建索引 |
-
-### Agent 與 Skill 管理（agent_tools.py）
-
-| Tool | 版本加入 | 說明 |
-|------|----------|------|
-| `list_agents` | v3.6 | 列出所有 Agent 模板 |
-| `dispatch_agent` | v3.6 | 載入指定 Agent 完整指令 |
-| `list_skills` | v3.6 | 列出 skills/ 知識包 |
-| `load_skill` | v3.6 | 讀取 Skill 知識包完整內容 |
-
-### 直覺記憶工具（instinct_tools.py）
-
-| Tool | 版本加入 | 說明 |
-|------|----------|------|
-| `create_instinct` | v3.6 | 建立直覺卡片 |
-| `update_instinct` | v3.6 | 更新信心度 / 新增證據 |
-| `search_instincts` | v3.6 | 語意搜尋直覺卡片 |
-| `list_instincts` | v3.6 | 列出所有卡片（依信心度排序） |
-| `generate_retrospective` | v3.6 | 月度復盤報告生成 |

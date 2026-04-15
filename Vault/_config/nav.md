@@ -1,7 +1,7 @@
 ---
 type: system
 created: 2026.04.01
-last_updated: 2026.04.09
+last_updated: 2026.04.12
 inject: true
 ---
 
@@ -54,10 +54,30 @@ workspaces/{organization}/
 
 ## _config/ 系統檔說明
 
-| 檔案 | 用途 |
-|------|------|
-| `nav.md` | 本檔：Vault 目錄結構導航 |
-| `handoff.md` | 跨專案輕量索引（活躍專案清單 + 跨專案備註） |
-| `agents.md` | AI Agent 工具說明 |
+| 檔案 | 用途 | inject |
+|------|------|--------|
+| `nav.md` | 本檔：Vault 目錄結構導航 | ✅ |
+| `agents.md` | AI Agent 工具說明、SOP、工具清單 | ✅ |
+| `end-of-day-checklist.md` | 收工檢查清單 | ✅ |
+| `handoff.md` | 跨專案輕量索引（活躍專案清單 + 跨專案備註） | ❌ |
+| `skills-rules-guide.md` | Skills vs Rules 分工指南 + 維護清單 | ❌ |
 
 > **注意**：各專案的待辦事項與工作脈絡統一放在各專案的 `status.md`，不再使用全域 `todos.md`。
+---
+
+## 文件邊界定義
+
+> **此專案特殊情況**：AI Memory Vault 本身往在開發的就是 MCP 工具，導致 `roadmap.md` 與 `agents.md` 看似重疊。下表明確割分职責。
+
+### 進度相關文件三角
+
+| 文件 | 受眾 | 更新時機 | 職責 |
+|------|------|---------|------|
+| `notes/roadmap.md` | 開發者（人讀） | 完成 Phase / 里程碑 | Phase 歷史、技術負債、長期展望 |
+| `status.md` | AI + 開發者 | 每次收工 | 近期作戰狀態、待辦清單、重要決策 |
+| `_config/agents.md` | AI（inject: true） | 工具上線後 | AI 工具操作說明、SOP、可用工具清單 |
+
+**邊界原則**：
+- MCP 工具清單（「AI 現在有哪些工具可用」）→ `agents.md`
+- MCP 工具開發歷史（「哪個 Phase 加了什麼」）→ `roadmap.md`
+- `roadmap.md` 不徤輪 `agents.md` 已有的工具列表，避免兩份剪輯 「唯一真實來源」原則
